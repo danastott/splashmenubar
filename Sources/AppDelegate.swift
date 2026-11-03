@@ -38,11 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(
-                systemSymbolName: "cpu",
-                accessibilityDescription: "Splash"
-            )
-            button.image?.isTemplate = true
+            // Splash's own mark, faint until a model serves (as the Splash app shows it).
+            button.image = SplashMark.menuBarImage(serving: false)
+            button.image?.accessibilityDescription = "Splash"
+            button.imagePosition = .imageLeading
             button.action = #selector(togglePanel)
             button.target = self
         }
@@ -102,6 +101,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .removeDuplicates()
             .sink { [weak self] title in
                 self?.setStatusTitle(title)
+            }
+            .store(in: &cancellables)
+
+        // Menu bar mark: solid once a model is serving, faint otherwise.
+        Publishers.CombineLatest(store.$endpointReady, store.$endpointAlive)
+            .map { ready, alive in ready && alive }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] serving in
+                let image = SplashMark.menuBarImage(serving: serving)
+                image.accessibilityDescription = "Splash"
+                self?.statusItem?.button?.image = image
             }
             .store(in: &cancellables)
 
