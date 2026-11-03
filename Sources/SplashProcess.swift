@@ -29,6 +29,23 @@ struct SplashConfig: Codable, Equatable {
     var disableANE: Bool = false        // --disable-ane
     var maxCacheDisk: String?   // --max-cache-disk, e.g. "16G" ("0" turns it off)
     var persistentCache: Bool = false   // --persistent-cache
+    /// App setting, not a splash flag: seconds between /status polls, i.e.
+    /// how often the flyout and menu bar refresh.
+    var refreshInterval: Double = 2
+    /// App setting, not a splash flag: minutes of generation the tok/s
+    /// graph spans.
+    var graphMinutes: Int = 5
+
+    static let refreshIntervalChoices: [Double] = [0.5, 1, 2, 5, 10]
+    static let graphMinutesChoices: [Int] = [1, 3, 5, 10, 15, 30]
+    /// Samples kept for the graph: the longest span at the fastest refresh.
+    static let maxGraphSamples = Int(Double(graphMinutesChoices.max()! * 60)
+                                     / refreshIntervalChoices.min()!)
+
+    /// How many of the latest samples the graph plots.
+    var graphSampleWindow: Int {
+        max(2, Int((Double(graphMinutes * 60) / refreshInterval).rounded()))
+    }
 
     static let `default` = SplashConfig(
         model: "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M",
@@ -54,7 +71,9 @@ struct SplashConfig: Codable, Equatable {
          stateFormat: String? = nil,
          disableANE: Bool = false,
          maxCacheDisk: String? = nil,
-         persistentCache: Bool = false) {
+         persistentCache: Bool = false,
+         refreshInterval: Double = 2,
+         graphMinutes: Int = 5) {
         self.model = model
         self.port = port
         self.maxMemory = maxMemory
@@ -66,6 +85,8 @@ struct SplashConfig: Codable, Equatable {
         self.disableANE = disableANE
         self.maxCacheDisk = maxCacheDisk
         self.persistentCache = persistentCache
+        self.refreshInterval = refreshInterval
+        self.graphMinutes = graphMinutes
     }
 
     /// Tolerates older/minimal config files: every field beyond model and
@@ -83,6 +104,10 @@ struct SplashConfig: Codable, Equatable {
         disableANE = try c.decodeIfPresent(Bool.self, forKey: .disableANE) ?? false
         maxCacheDisk = try c.decodeIfPresent(String.self, forKey: .maxCacheDisk)
         persistentCache = try c.decodeIfPresent(Bool.self, forKey: .persistentCache) ?? false
+        let interval = try c.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 2
+        refreshInterval = min(max(interval, 0.25), 60)
+        let minutes = try c.decodeIfPresent(Int.self, forKey: .graphMinutes) ?? 5
+        graphMinutes = min(max(minutes, 1), Self.graphMinutesChoices.max()!)
     }
 
     static var configURL: URL {
@@ -130,6 +155,9 @@ struct SplashConfig: Codable, Equatable {
 final class SplashProcess {
     private(set) var state: SplashState = .stopped
     private var proc: Process?
+    /// True while the app's own `splash serve` child is running (so quitting
+    /// the app stops it).
+    var ownsRunningChild: Bool { proc?.isRunning ?? false }
     private var readerThreads: [Thread] = []
     private var readerHandles: [FileHandle] = []
     private var intentionalStop = false
@@ -152,7 +180,11 @@ final class SplashProcess {
         let stderr = Pipe()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = config.serveArguments
-        p.environment = childEnvironment()
+        var env = Self.childEnvironment()
+        // huggingface_hub hides its download progress bars when stderr is not
+        // a TTY; -1 forces them on so the app can show download progress.
+        env["TQDM_POSITION"] = "-1"
+        p.environment = env
         p.standardOutput = stdout
         p.standardError = stderr
         p.terminationHandler = { [weak self] finished in
@@ -266,13 +298,42 @@ final class SplashProcess {
         return String(data: data, encoding: .utf8)
     }
 
-    func restart() {
-        if proc == nil {
-            start(lastConfig)
+    /// Stops whatever serves splash now and starts it with `config` (which
+    /// may name a different model or port than the running server).
+    func restart(with config: SplashConfig) {
+        // Our own child: stop it; the termination handler starts lastConfig.
+        if let p = proc, p.isRunning {
+            lastConfig = config
+            pendingRestart = true
+            stop()
             return
         }
-        pendingRestart = true
-        stop()
+        if proc != nil { teardown() }
+
+        // No child of ours, but a server started elsewhere (or one left over
+        // from an earlier run of the app) may hold the old or the new port.
+        let oldPort = lastConfig.port
+        lastConfig = config
+        let pids = Set(Self.findServerPIDs(port: oldPort) + Self.findServerPIDs(port: config.port))
+        guard !pids.isEmpty else {
+            start(config)
+            return
+        }
+        setState(.starting)
+        for pid in pids { kill(pid, SIGTERM) }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Give it 5 s to exit cleanly, then force it, then start ours.
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, pids.contains(where: { kill($0, 0) == 0 }) {
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+            for pid in pids where kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+            Thread.sleep(forTimeInterval: 0.5)   // let the port free up
+            DispatchQueue.main.async {
+                guard let self, self.proc == nil else { return }
+                self.start(self.lastConfig)
+            }
+        }
     }
 
     // MARK: - Reading
@@ -284,10 +345,13 @@ final class SplashProcess {
                 let chunk = handle.availableData
                 if chunk.isEmpty { break } // EOF
                 pending.append(chunk)
-                while let nl = pending.firstIndex(of: 0x0A) {
+                // Progress bars (tqdm, used for model downloads) redraw with
+                // a bare \r and no \n, so treat \r as a line end as well.
+                while let nl = pending.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
                     let lineData = pending[pending.startIndex..<nl]
                     pending.removeSubrange(pending.startIndex...nl)
-                    let line = String(decoding: lineData, as: UTF8.self)
+                    let line = Self.stripANSI(String(decoding: lineData, as: UTF8.self))
+                    if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
                     DispatchQueue.main.async {
                         self?.onLine?(line)
                     }
@@ -298,6 +362,15 @@ final class SplashProcess {
         thread.stackSize = 512 * 1024
         thread.start()
         readerThreads.append(thread)
+    }
+
+    /// Removes terminal escape sequences (colors, cursor moves between
+    /// stacked progress bars).
+    static func stripANSI(_ s: String) -> String {
+        guard s.contains("\u{1B}") else { return s }
+        return s.replacingOccurrences(
+            of: #"\u001B\[[0-9;?]*[ -/]*[@-~]"#, with: "", options: .regularExpression
+        )
     }
 
     private func teardown() {
@@ -317,7 +390,7 @@ final class SplashProcess {
 
     /// Apps launched via LaunchServices (Finder, `open`) get a minimal PATH
     /// that excludes Homebrew, so prepend the usual user tool locations.
-    private func childEnvironment() -> [String: String] {
+    static func childEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         var path = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         for extra in ["/opt/homebrew/bin", "/usr/local/bin",

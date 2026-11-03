@@ -8,7 +8,7 @@ all: $(APP).app
 
 $(BIN): $(SOURCES)
 	@mkdir -p build
-	$(SWIFTC) $(FLAGS) -o $@ $(SOURCES) -framework AppKit -framework SwiftUI
+	$(SWIFTC) $(FLAGS) -o $@ $(SOURCES) -framework AppKit -framework SwiftUI -framework IOKit
 
 $(APP).app: $(BIN) Info.plist Resources/AppIcon.icns
 	@rm -rf $(APP).app

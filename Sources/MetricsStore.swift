@@ -5,7 +5,33 @@ import Combine
 /// into publishable metrics state. All mutation happens on the main thread.
 final class MetricsStore: ObservableObject {
     // Process state (from SplashProcess).
-    @Published var state: SplashState = .stopped
+    @Published var state: SplashState = .stopped {
+        didSet {
+            // Our child just started: begin tracking its startup.
+            if state == .running, oldValue != .running, readyModel == nil {
+                startupBegan = Date()
+                startupTitle = "Starting splash…"
+                startupDetail = nil
+                startupFraction = nil
+            }
+        }
+    }
+
+    // Startup progress (from splash's output until it reports Ready).
+    @Published var startupTitle: String?
+    @Published var startupDetail: String?
+    @Published var startupFraction: Double?
+    @Published var startupBegan: Date?
+    /// Latest plain output line (not a progress redraw), e.g. a warning or
+    /// the error splash exited with.
+    @Published var lastOutputLine: String?
+    private var sawByteProgress = false
+
+    /// Our child is running but not serving yet (preparing, downloading,
+    /// loading weights).
+    var isStartingUp: Bool {
+        (state == .running || state == .starting) && readyModel == nil && !endpointReady
+    }
 
     // Log-derived (per request).
     @Published var requests: [RequestMetrics] = []
@@ -26,11 +52,19 @@ final class MetricsStore: ObservableObject {
         effectiveRunning && state != .running && state != .starting
     }
     @Published var thermalState: String?
+    /// Hottest SoC die sensor, °C (read by the app, not reported by splash).
+    @Published var chipTemperatureC: Double?
+    /// Whole-machine CPU, GPU and memory use (read by the app, not splash).
+    @Published var system = SystemUsage()
+    /// The flyout is pinned open (UI state, not from splash).
+    @Published var panelPinned = false
     @Published var maxContextTokens: Int?
     @Published var modelFromStatus: String?
     @Published var liveTokensPerSecond: Double?
     @Published var lifetimeTokensPerSecond: Double?
     @Published var prefillTokensPerSecond: Double?
+    /// Speed of the prefill batch running now (nil when nothing prefills).
+    @Published var livePrefillTokensPerSecond: Double?
     @Published var cacheHitRate: Double?
     @Published var ttftP50: Double?
     @Published var ttftP95: Double?
@@ -67,6 +101,11 @@ final class MetricsStore: ObservableObject {
     }
 
     /// cache gauge: endpoint hit rate, else last request's cached/input.
+    /// prefill gauge: the prefill running now, else the lifetime average.
+    var gaugePrefillTokensPerSecond: Double? {
+        livePrefillTokensPerSecond ?? prefillTokensPerSecond
+    }
+
     var gaugeCacheFraction: Double? {
         if let cacheHitRate { return cacheHitRate }
         guard let l = last, let i = l.input, i > 0 else { return nil }
@@ -80,12 +119,20 @@ final class MetricsStore: ObservableObject {
     // MARK: - Log ingest
 
     func handle(line: String) {
-        logLines.append(line)
-        if logLines.count > 400 {
-            logLines.removeFirst(logLines.count - 400)
+        let event = SplashParser.parse(line)
+        // Progress redraws arrive ~10×/s; keep them out of the log.
+        switch event {
+        case .progress, .ignored: break
+        default:
+            logLines.append(line)
+            if logLines.count > 400 {
+                logLines.removeFirst(logLines.count - 400)
+            }
         }
 
-        switch SplashParser.parse(line) {
+        switch event {
+        case .ignored:
+            break
         case .request(var r):
             nextID += 1
             r.id = nextID
@@ -95,15 +142,56 @@ final class MetricsStore: ObservableObject {
             }
         case .thermal(_, let to):
             thermalState = to
+        case .selected(let file, let repo):
+            startupTitle = "Preparing \(repo)"
+            startupDetail = file
+            startupFraction = nil
+        case .fetching(let repo, let files, let totalBytes):
+            sawByteProgress = false
+            startupTitle = "Downloading \(repo)"
+            var parts: [String] = []
+            if let files { parts.append("\(files) file\(files == 1 ? "" : "s")") }
+            if let totalBytes { parts.append(SplashParser.decimalBytes(totalBytes)) }
+            startupDetail = parts.isEmpty ? nil : parts.joined(separator: " · ")
+            startupFraction = 0
+        case .progress(let bar):
+            // Byte bars carry size and speed; the file-count bar is only a
+            // fallback until (or unless) one appears.
+            if bar.isBytes {
+                sawByteProgress = true
+            } else if sawByteProgress {
+                break
+            }
+            if startupTitle == nil || startupTitle == "Starting splash…" {
+                startupTitle = "Downloading model"
+            }
+            startupFraction = bar.fraction
+            var parts = ["\(bar.done) / \(bar.total)"]
+            if let r = bar.rate { parts.append(r) }
+            if let e = bar.eta { parts.append("\(e) left") }
+            startupDetail = parts.joined(separator: " · ")
+        case .loading(let model):
+            startupTitle = "Loading model weights"
+            startupDetail = model
+            startupFraction = nil
         case .ready(let model, let context, let url):
+            startupTitle = nil
+            startupDetail = nil
+            startupFraction = nil
             readyModel = model
             readyContext = context
             readyURL = url
             if serverStartedAt == nil { serverStartedAt = Date() }
         case .weightsLoaded(let s):
             weightsLoadSeconds = s
-        case .raw:
-            break
+            startupTitle = "Starting the server"
+            startupDetail = "Weights loaded in \(Fmt.seconds(s))"
+            startupFraction = nil
+        case .raw(let text):
+            // Drop splash's "HH:MM:SS " prefix; the card shows elapsed time.
+            let shown = text.replacingOccurrences(
+                of: #"^\d{2}:\d{2}:\d{2} "#, with: "", options: .regularExpression)
+            if !shown.isEmpty { lastOutputLine = shown }
         }
     }
 
@@ -125,17 +213,32 @@ final class MetricsStore: ObservableObject {
         ttftP50 = m?.ttft_ms?.p50.map { $0 / 1000 }
         ttftP95 = m?.ttft_ms?.p95.map { $0 / 1000 }
         totalOutputTokens = m?.decode_output_tokens
+        // current_decode_batch is the most recent batch and stays "valid"
+        // after decoding stops, so it is live only while this poll's
+        // scheduler reports a decoding request.
         let batch = m?.current_decode_batch
-        if let batch, batch.valid == true, let tps = batch.tokens_per_second, tps > 0 {
+        let decodingNow = doc.scheduler?.decoding.map { $0 > 0 } ?? true
+        if decodingNow, let batch, batch.valid == true, let tps = batch.tokens_per_second, tps > 0 {
             liveTokensPerSecond = tps
-        } else if decodingCount == 0 || decodingCount == nil {
+        } else {
             liveTokensPerSecond = nil
+        }
+        // Like the decode batch, the last prefill batch stays "valid" after
+        // prefill ends: live only while the scheduler reports prefilling.
+        let prefillingNow = doc.scheduler?.prefilling.map { $0 > 0 } ?? false
+        if prefillingNow, let b = m?.current_prefill_batch, b.valid == true,
+           let tps = b.tokens_per_second, tps > 0 {
+            livePrefillTokensPerSecond = tps
+        } else {
+            livePrefillTokensPerSecond = nil
         }
         // Sample the sparkline from live speed so history tracks the server.
         if let liveTokensPerSecond {
             tpsHistory.append(liveTokensPerSecond)
-            if tpsHistory.count > 90 {
-                tpsHistory.removeFirst(tpsHistory.count - 90)
+            // Enough for the graph's longest span at the fastest refresh.
+            let cap = SplashConfig.maxGraphSamples
+            if tpsHistory.count > cap {
+                tpsHistory.removeFirst(tpsHistory.count - cap)
             }
         }
 
@@ -180,12 +283,19 @@ final class MetricsStore: ObservableObject {
 
     func markPollFailed() {
         endpointAlive = false
+        livePrefillTokensPerSecond = nil
         prefillFraction = nil
         prefillRemainingTokens = nil
         prefillETASeconds = nil
     }
 
     func resetForRestart() {
+        startupTitle = nil
+        startupDetail = nil
+        startupFraction = nil
+        startupBegan = nil
+        lastOutputLine = nil
+        sawByteProgress = false
         requests.removeAll()
         logLines.removeAll()
         weightsLoadSeconds = nil
@@ -203,6 +313,7 @@ final class MetricsStore: ObservableObject {
         liveTokensPerSecond = nil
         lifetimeTokensPerSecond = nil
         prefillTokensPerSecond = nil
+        livePrefillTokensPerSecond = nil
         cacheHitRate = nil
         ttftP50 = nil
         ttftP95 = nil
