@@ -66,6 +66,7 @@ struct StatusDoc: Decodable {
     }
 
     struct Instance: Decodable {
+        let pid: Int?
         let started_at: Double?
         let model: String?
         let port: Int?
@@ -83,17 +84,30 @@ struct StatusDoc: Decodable {
 }
 
 enum StatusClient {
-    /// Fetch and decode `/status` from the local server.
-    static func fetch(port: Int) async -> StatusDoc? {
+    /// Fetch and decode `/status` from the local server. Returns nil on a
+    /// timeout, an error, or a reply that isn't splash's: another service on
+    /// the port must not be mistaken for an "external" splash server.
+    static func fetch(port: Int, timeout: TimeInterval = 5) async -> StatusDoc? {
         guard let url = URL(string: "http://127.0.0.1:\(port)/status") else { return nil }
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData,
+                                 timeoutInterval: timeout)
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                return nil
-            }
-            return try? JSONDecoder().decode(StatusDoc.self, from: data)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let doc = try? JSONDecoder().decode(StatusDoc.self, from: data),
+                  isSplash(doc, port: port)
+            else { return nil }
+            return doc
         } catch {
             return nil
         }
+    }
+
+    /// splash's /status always has an `instance` block naming the server's
+    /// pid and port, and a `ready` flag.
+    private static func isSplash(_ doc: StatusDoc, port: Int) -> Bool {
+        guard let instance = doc.instance, doc.ready != nil,
+              instance.pid != nil || instance.model != nil else { return false }
+        return instance.port == nil || instance.port == port
     }
 }

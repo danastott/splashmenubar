@@ -150,19 +150,24 @@ struct SplashConfig: Codable, Equatable {
 }
 
 /// Owns the `splash serve` child process and streams its output lines.
-/// Output is read on dedicated background threads (blocking `availableData`
-/// loops) and lines are dispatched to the main thread.
+/// Output is read with FileHandle readability handlers (see OutputReader)
+/// and lines are dispatched to the main thread.
 final class SplashProcess {
     private(set) var state: SplashState = .stopped
     private var proc: Process?
     /// True while the app's own `splash serve` child is running (so quitting
     /// the app stops it).
     var ownsRunningChild: Bool { proc?.isRunning ?? false }
-    private var readerThreads: [Thread] = []
-    private var readerHandles: [FileHandle] = []
+    private var readers: [OutputReader] = []
     private var intentionalStop = false
     private var pendingRestart = false
     private var lastConfig = SplashConfig.default
+    /// Bumped on every start; output still arriving from an older child is
+    /// dropped instead of being attributed to the new one.
+    private var generation = 0
+    /// Set while restart(with:) waits for an external server to exit before
+    /// starting ours; Stop clears it so that start never happens.
+    private var externalRestartToken: UUID?
 
     /// Called on the main thread, once per output line (stdout or stderr).
     var onLine: ((String) -> Void)?
@@ -171,8 +176,11 @@ final class SplashProcess {
 
     func start(_ config: SplashConfig) {
         guard proc == nil else { return }
+        externalRestartToken = nil
         lastConfig = config
         intentionalStop = false
+        generation += 1
+        let gen = generation
         setState(.starting)
 
         let p = Process()
@@ -206,79 +214,121 @@ final class SplashProcess {
             return
         }
 
-        readerHandles = [stdout.fileHandleForReading, stderr.fileHandleForReading]
-        startReader(handle: stdout.fileHandleForReading, label: "stdout")
-        startReader(handle: stderr.fileHandleForReading, label: "stderr")
+        readers = [stdout, stderr].map { pipe in
+            OutputReader(handle: pipe.fileHandleForReading) { [weak self] line in
+                DispatchQueue.main.async {
+                    guard let self, self.generation == gen else { return }
+                    self.onLine?(line)
+                }
+            }
+        }
         setState(.running)
     }
 
     /// Stop the splash server on our port: our child if we have one,
-    /// otherwise the external process serving the port (UI "Stop").
+    /// otherwise a splash server started outside the app (UI "Stop"). Also
+    /// cancels a restart in progress.
     func stop() {
-        if let p = proc, p.isRunning {
-            intentionalStop = true
-            p.terminate()
-            let pid = p.processIdentifier
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-                guard let self, self.intentionalStop,
-                      let p = self.proc, p.isRunning, p.processIdentifier == pid else { return }
-                kill(pid, SIGKILL)
-            }
-            return
+        pendingRestart = false
+        if externalRestartToken != nil {
+            externalRestartToken = nil
+            setState(.stopped)
         }
         if proc != nil {
-            teardown()
+            stopOwnChild()
             return
         }
-        // No child of ours: shut down whatever is serving the port (a splash
-        // started outside the app, or a leftover process).
+        // No child of ours: shut down a splash serving the port (started
+        // outside the app, or left over). Never anything that isn't splash.
         stopExternalServer(on: lastConfig.port)
     }
 
-    /// Stop only our own child (used on app quit; never touches an
-    /// externally started server).
-    func stopChild() {
+    /// SIGTERM our child and the engine under it, SIGKILL whatever is left
+    /// after 5 s. The termination handler then updates the state.
+    private func stopOwnChild() {
+        guard let p = proc else { return }
+        intentionalStop = true
+        // Already exited: its termination handler is queued and finishes up.
+        guard p.isRunning else { return }
+        let pid = p.processIdentifier
+        // Collect the engine before the wrapper exits and it is reparented.
+        let tree = Self.descendants(of: pid)
+        p.terminate()
+        for child in tree { kill(child, SIGTERM) }
+        DispatchQueue.global(qos: .utility).async {
+            Self.killAfterGrace([pid] + tree, grace: 5)
+        }
+    }
+
+    /// Used on app quit: stop our own child and its engine, waiting (briefly)
+    /// until they're gone so nothing is orphaned holding the model in memory.
+    /// Never touches an externally started server.
+    func stopChildBeforeQuit() {
         guard let p = proc, p.isRunning else { return }
         intentionalStop = true
-        p.terminate()
         let pid = p.processIdentifier
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            guard let self, self.intentionalStop,
-                  let p = self.proc, p.isRunning, p.processIdentifier == pid else { return }
-            kill(pid, SIGKILL)
-        }
+        let pids = [pid] + Self.descendants(of: pid)
+        for each in pids { kill(each, SIGTERM) }
+        Self.killAfterGrace(pids, grace: 3)
     }
 
     private func stopExternalServer(on port: Int) {
         let pids = Self.findServerPIDs(port: port)
-        for pid in pids { kill(pid, SIGTERM) }
         guard !pids.isEmpty else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-            for pid in pids where kill(pid, 0) == 0 {
-                kill(pid, SIGKILL)
-            }
+        for pid in pids { kill(pid, SIGTERM) }
+        DispatchQueue.global(qos: .utility).async {
+            Self.killAfterGrace(pids, grace: 5)
         }
     }
 
-    /// PIDs that belong to the splash server on `port`: the listener
-    /// (Python wrapper) plus the native engine, which can outlive it.
+    /// Blocks until every pid has exited or `grace` seconds pass, then
+    /// SIGKILLs the survivors.
+    private static func killAfterGrace(_ pids: [pid_t], grace: TimeInterval) {
+        let deadline = Date().addingTimeInterval(grace)
+        while Date() < deadline, pids.contains(where: { kill($0, 0) == 0 }) {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        for pid in pids where kill(pid, 0) == 0 {
+            kill(pid, SIGKILL)
+        }
+    }
+
+    /// PIDs of the splash server listening on `port` and its child processes
+    /// (the `serve-native` engine). A listener that isn't splash, such as
+    /// another app using the port, is never included.
     static func findServerPIDs(port: Int) -> [pid_t] {
         var pids = Set<pid_t>()
-        if let out = runCapture("/usr/sbin/lsof", ["-tiTCP:\(port)", "-sTCP:LISTEN"]) {
-            for line in out.split(separator: "\n") {
-                if let v = Int32(line.trimmingCharacters(in: .whitespaces)) {
-                    pids.insert(v)
-                }
-            }
-        }
-        if let out = runCapture("/usr/bin/pgrep", ["-f", "serve-native.*--port \(port)( |$)"]) {
-            for line in out.split(separator: "\n") {
-                if let v = Int32(line.trimmingCharacters(in: .whitespaces)) {
-                    pids.insert(v)
-                }
-            }
+        for pid in pidList(runCapture("/usr/sbin/lsof", ["-tiTCP:\(port)", "-sTCP:LISTEN"]))
+        where isSplashProcess(pid) {
+            pids.insert(pid)
+            pids.formUnion(descendants(of: pid))
         }
         return Array(pids)
+    }
+
+    /// True if the process's command line is splash's (its Python server
+    /// lives under the splash install, and the engine is `splash serve-native`).
+    private static func isSplashProcess(_ pid: pid_t) -> Bool {
+        guard let args = runCapture("/bin/ps", ["-o", "args=", "-p", "\(pid)"]) else { return false }
+        return args.lowercased().contains("splash")
+    }
+
+    /// All processes below `pid`, children first.
+    private static func descendants(of pid: pid_t) -> [pid_t] {
+        var out: [pid_t] = []
+        var queue = [pid]
+        while let next = queue.popLast(), out.count < 64 {
+            let kids = pidList(runCapture("/usr/bin/pgrep", ["-P", "\(next)"]))
+            out += kids
+            queue += kids
+        }
+        return out
+    }
+
+    private static func pidList(_ output: String?) -> [pid_t] {
+        (output ?? "").split(separator: "\n").compactMap {
+            Int32($0.trimmingCharacters(in: .whitespaces))
+        }
     }
 
     private static func runCapture(_ launchPath: String, _ arguments: [String]) -> String? {
@@ -287,14 +337,14 @@ final class SplashProcess {
         p.arguments = arguments
         let pipe = Pipe()
         p.standardOutput = pipe
-        p.standardError = Pipe()
+        p.standardError = FileHandle.nullDevice
         do {
             try p.run()
         } catch {
             return nil
         }
-        p.waitUntilExit()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
         return String(data: data, encoding: .utf8)
     }
 
@@ -302,66 +352,41 @@ final class SplashProcess {
     /// may name a different model or port than the running server).
     func restart(with config: SplashConfig) {
         // Our own child: stop it; the termination handler starts lastConfig.
-        if let p = proc, p.isRunning {
+        if proc != nil {
             lastConfig = config
             pendingRestart = true
-            stop()
+            stopOwnChild()
             return
         }
-        if proc != nil { teardown() }
 
-        // No child of ours, but a server started elsewhere (or one left over
+        // No child of ours, but a splash started elsewhere (or one left over
         // from an earlier run of the app) may hold the old or the new port.
+        // Only splash processes are stopped; if something else holds the new
+        // port, splash fails to start and the crash card says why.
         let oldPort = lastConfig.port
         lastConfig = config
-        let pids = Set(Self.findServerPIDs(port: oldPort) + Self.findServerPIDs(port: config.port))
+        var pids = Set(Self.findServerPIDs(port: oldPort))
+        if config.port != oldPort { pids.formUnion(Self.findServerPIDs(port: config.port)) }
         guard !pids.isEmpty else {
             start(config)
             return
         }
+        let token = UUID()
+        externalRestartToken = token
         setState(.starting)
         for pid in pids { kill(pid, SIGTERM) }
+        let all = Array(pids)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             // Give it 5 s to exit cleanly, then force it, then start ours.
-            let deadline = Date().addingTimeInterval(5)
-            while Date() < deadline, pids.contains(where: { kill($0, 0) == 0 }) {
-                Thread.sleep(forTimeInterval: 0.2)
-            }
-            for pid in pids where kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+            Self.killAfterGrace(all, grace: 5)
             Thread.sleep(forTimeInterval: 0.5)   // let the port free up
             DispatchQueue.main.async {
-                guard let self, self.proc == nil else { return }
+                // Stop (or a fresh Start) while waiting cancels this start.
+                guard let self, self.externalRestartToken == token, self.proc == nil else { return }
+                self.externalRestartToken = nil
                 self.start(self.lastConfig)
             }
         }
-    }
-
-    // MARK: - Reading
-
-    private func startReader(handle: FileHandle, label: String) {
-        let thread = Thread { [weak self] in
-            var pending = Data()
-            while true {
-                let chunk = handle.availableData
-                if chunk.isEmpty { break } // EOF
-                pending.append(chunk)
-                // Progress bars (tqdm, used for model downloads) redraw with
-                // a bare \r and no \n, so treat \r as a line end as well.
-                while let nl = pending.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
-                    let lineData = pending[pending.startIndex..<nl]
-                    pending.removeSubrange(pending.startIndex...nl)
-                    let line = Self.stripANSI(String(decoding: lineData, as: UTF8.self))
-                    if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
-                    DispatchQueue.main.async {
-                        self?.onLine?(line)
-                    }
-                }
-            }
-        }
-        thread.name = "splash-\(label)-reader"
-        thread.stackSize = 512 * 1024
-        thread.start()
-        readerThreads.append(thread)
     }
 
     /// Removes terminal escape sequences (colors, cursor moves between
@@ -374,12 +399,14 @@ final class SplashProcess {
     }
 
     private func teardown() {
-        // Closing the handles unblocks any reader threads in availableData.
-        for h in readerHandles {
-            try? h.close()
+        // Let the readers drain what the child wrote just before exiting (its
+        // final error line), then stop them. They also stop by themselves at
+        // EOF; the engine can outlive the wrapper and hold the pipes open.
+        let old = readers
+        readers.removeAll()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            old.forEach { $0.cancel() }
         }
-        readerHandles.removeAll()
-        readerThreads.removeAll()
         proc = nil
     }
 
@@ -400,5 +427,68 @@ final class SplashProcess {
         }
         env["PATH"] = path
         return env
+    }
+}
+
+/// Splits one pipe's output into lines. Uses a readability handler rather
+/// than a thread blocked in `availableData`, so it can be stopped and its
+/// handle closed safely at any time; a final line without a newline is still
+/// delivered at EOF or on cancel.
+private final class OutputReader {
+    private let handle: FileHandle
+    private let onLine: (String) -> Void
+    private let lock = NSLock()
+    private var pending = Data()
+    private var done = false
+
+    init(handle: FileHandle, onLine: @escaping (String) -> Void) {
+        self.handle = handle
+        self.onLine = onLine
+        handle.readabilityHandler = { [weak self] h in
+            self?.read(from: h)
+        }
+    }
+
+    private func read(from h: FileHandle) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !done else { return }
+        let chunk = h.availableData
+        if chunk.isEmpty {
+            finishLocked()   // EOF
+            return
+        }
+        pending.append(chunk)
+        // Progress bars (tqdm, used for model downloads) redraw with a bare
+        // \r and no \n, so treat \r as a line end as well.
+        while let nl = pending.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
+            let lineData = pending[pending.startIndex..<nl]
+            pending.removeSubrange(pending.startIndex...nl)
+            emit(lineData)
+        }
+    }
+
+    /// Stops reading, delivers any unterminated last line, closes the handle.
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        finishLocked()
+    }
+
+    private func finishLocked() {
+        guard !done else { return }
+        done = true
+        handle.readabilityHandler = nil
+        if !pending.isEmpty {
+            emit(pending)
+            pending.removeAll()
+        }
+        try? handle.close()
+    }
+
+    private func emit(_ data: Data) {
+        let line = SplashProcess.stripANSI(String(decoding: data, as: UTF8.self))
+        if line.trimmingCharacters(in: .whitespaces).isEmpty { return }
+        onLine(line)
     }
 }

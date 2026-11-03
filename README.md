@@ -17,10 +17,13 @@ live inference metrics.
   green ▶ **Start** and a red ■ **Stop** based on whether a server is actually
   serving the configured port. Stop, Restart and Quit (⏻) ask for
   confirmation first. **Stop** shuts the server down even when it
-  was started outside the app (it finds the listener and the native engine
-  on the port, SIGTERMs them, and SIGKILLs after 5 s). If the server dies on
+  was started outside the app: it finds the splash server listening on the
+  port and its `serve-native` engine, SIGTERMs them, and SIGKILLs after 5 s.
+  A process on the port that isn't splash is never touched, and a `/status`
+  reply that isn't splash's isn't mistaken for a running server. If the server dies on
   its own the flyout shows a crashed state and offers to start it again.
-  Quitting the app reaps only its own child; an externally started server is
+  Quitting the app stops only its own server (and its engine, waiting up to
+  3 s so nothing is left holding the model); an externally started server is
   left running.
 - **Pin**: the pin icon in the flyout's header keeps the flyout open: clicking
   elsewhere, pressing Esc, clicking the menu bar item or using its buttons no

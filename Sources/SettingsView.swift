@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// Editable form state for the `splash serve` parameters.
 final class SettingsModel: ObservableObject {
@@ -17,19 +18,24 @@ final class SettingsModel: ObservableObject {
     @Published var graphMinutes: Int
     /// True when the Model field is free text instead of a listed model.
     @Published var customModel: Bool
-    /// Listed models: the catalog plus other variants found in the cache.
-    let modelChoices: [KnownModel]
+    /// Listed models: the catalog, plus other variants found in the cache
+    /// once the background scan finishes.
+    @Published private(set) var modelChoices: [KnownModel] = SplashModels.catalog
     /// Bytes on disk of each fully downloaded model id.
-    let downloadedSizes: [String: Int64]
+    @Published private(set) var downloadedSizes: [String: Int64] = [:]
+    /// False until the cache scan has finished.
+    @Published private(set) var scanned = false
+    /// Results of checking typed-in custom ids (nil value = not downloaded).
+    @Published private var customSizes: [String: Int64?] = [:]
+    private var cancellables = Set<AnyCancellable>()
 
     static let customTag = "__custom__"
 
+    enum DownloadStatus { case checking, downloaded(Int64), notDownloaded }
+
     init(config: SplashConfig) {
         model = config.model
-        let scan = SplashModels.scan()
-        modelChoices = SplashModels.catalog + scan.extras
-        downloadedSizes = scan.sizes
-        customModel = !modelChoices.contains { $0.id == config.model }
+        customModel = !SplashModels.catalog.contains { $0.id == config.model }
         port = String(config.port)
         maxMemory = config.maxMemory ?? ""
         idleRelease = config.idleRelease ?? ""
@@ -42,6 +48,38 @@ final class SettingsModel: ObservableObject {
         persistentCache = config.persistentCache
         refreshInterval = config.refreshInterval
         graphMinutes = config.graphMinutes
+
+        // Scanning the Hugging Face cache walks and resolves every snapshot
+        // file, so keep it off the main thread.
+        let initialModel = config.model
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let scan = SplashModels.scan()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.modelChoices = SplashModels.catalog + scan.extras
+                self.downloadedSizes = scan.sizes
+                self.scanned = true
+                // The saved model turned out to be a downloaded variant: list it.
+                if self.customModel, self.model == initialModel,
+                   scan.extras.contains(where: { $0.id == initialModel }) {
+                    self.customModel = false
+                }
+            }
+        }
+
+        // Check a typed-in custom id once typing pauses, in the background.
+        Publishers.CombineLatest($model, $customModel)
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .map { $0.0.trimmingCharacters(in: .whitespaces) }
+            .sink { [weak self] id in
+                guard let self, self.customModel, !id.isEmpty,
+                      self.customSizes[id] == nil else { return }
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let size = SplashModels.downloadedSize(id)
+                    DispatchQueue.main.async { self?.customSizes[id] = .some(size) }
+                }
+            }
+            .store(in: &cancellables)
     }
 
     var asConfig: SplashConfig {
@@ -63,11 +101,17 @@ final class SettingsModel: ObservableObject {
         return c
     }
 
-    /// Bytes on disk for the model in the field (custom ids are checked live).
-    var currentDownloadedSize: Int64? {
+    /// Whether the model in the field is downloaded, from the background
+    /// scan (listed models) or a debounced background check (custom ids).
+    var currentStatus: DownloadStatus {
         let id = model.trimmingCharacters(in: .whitespaces)
-        guard !id.isEmpty else { return nil }
-        return downloadedSizes[id] ?? (customModel ? SplashModels.downloadedSize(id) : nil)
+        guard !id.isEmpty else { return .notDownloaded }
+        if let size = downloadedSizes[id] { return .downloaded(size) }
+        if let checked = customSizes[id] {
+            return checked.map { .downloaded($0) } ?? .notDownloaded
+        }
+        if customModel || !scanned { return .checking }
+        return .notDownloaded
     }
 
     private static func blank(_ s: String) -> String? {
@@ -218,12 +262,17 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var modelStatus: some View {
-        if let size = settings.currentDownloadedSize {
+        switch settings.currentStatus {
+        case .downloaded(let size):
             Label("Downloaded · \(Fmt.bytes(Int(size))) on disk", systemImage: "checkmark.circle.fill")
                 .foregroundColor(.green)
                 .font(.system(size: 10))
-        } else {
+        case .notDownloaded:
             Label("Not downloaded · the first start downloads it", systemImage: "arrow.down.circle")
+                .foregroundColor(.secondary)
+                .font(.system(size: 10))
+        case .checking:
+            Label("Checking the model cache…", systemImage: "hourglass")
                 .foregroundColor(.secondary)
                 .font(.system(size: 10))
         }

@@ -153,9 +153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Quitting the app reaps our child but leaves an externally started
-        // server untouched.
-        proc.stopChild()
+        // Quitting the app stops our child and its engine (waiting briefly so
+        // nothing is orphaned) but leaves an externally started server alone.
+        proc.stopChildBeforeQuit()
     }
 
     /// Sets the status item text; a "●" (ready, idle) is drawn green.
@@ -342,7 +342,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.store.chipTemperatureC = self.thermalSensor?.celsius()
                 self.store.system = self.systemMonitor.sample()
                 let port = self.config.port
-                if let doc = await StatusClient.fetch(port: port) {
+                // Time out well before a minute so a stalled server can't
+                // freeze the flyout; the next poll tries again.
+                let timeout = min(max(interval * 2, 2), 10)
+                if let doc = await StatusClient.fetch(port: port, timeout: timeout) {
                     self.store.apply(status: doc)
                 } else {
                     self.store.markPollFailed()
@@ -521,6 +524,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // Wake the poll loop now instead of after the old interval.
                         self.startPolling()
                     }
+                    // The flyout holds a copy of the config; a pinned one stays
+                    // open, so rebuild it with the new settings in place.
+                    self.rebuildPanelIfVisible()
                 }
                 self.closeSettings()
             },
@@ -542,6 +548,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func closeSettings() {
         settingsWindow?.close()
         settingsWindow = nil
+    }
+
+    /// Rebuilds an open flyout (e.g. after Settings changed), keeping a
+    /// pinned flyout where the user put it.
+    private func rebuildPanelIfVisible() {
+        guard panelVisible, let p = panel,
+              let button = statusItem.button, let win = button.window else { return }
+        let topLeft = store.panelPinned ? NSPoint(x: p.frame.minX, y: p.frame.maxY) : nil
+        closePanel()
+        showPanel(anchor: button, anchorWindow: win, keepingTopLeft: topLeft)
     }
 
     private func reopenPanel() {

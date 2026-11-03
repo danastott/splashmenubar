@@ -283,6 +283,10 @@ final class MetricsStore: ObservableObject {
 
     func markPollFailed() {
         endpointAlive = false
+        // Not answering means not ready. Otherwise a "ready" seen from the
+        // old server while it shut down would outlive a restart and hide the
+        // new server's startup/download progress.
+        endpointReady = false
         livePrefillTokensPerSecond = nil
         prefillFraction = nil
         prefillRemainingTokens = nil
