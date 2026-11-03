@@ -24,7 +24,10 @@ live inference metrics.
   left running.
 - **Pin**: the pin icon in the flyout's header keeps the flyout open: clicking
   elsewhere, pressing Esc, clicking the menu bar item or using its buttons no
-  longer closes it, until you click the pin again to unpin it.
+  longer closes it, until you click the pin again to unpin it. While pinned
+  you can drag it anywhere on screen by its top edge (the pointer turns into
+  a hand there); unpinning snaps it back
+  under the menu bar item.
 - **Startup progress**: until splash reports Ready, the flyout shows a
   *Starting up* card: the current stage (preparing, downloading
   `owner/repo`, loading weights, starting the server), a progress bar with

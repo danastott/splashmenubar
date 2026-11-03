@@ -37,6 +37,12 @@ struct MetricsView: View {
     private var content: some View {
         VStack(spacing: 10) {
             header
+                // Pinned, the top strip (header plus the margin above it) is
+                // the drag handle; it shows an open hand.
+                .background(
+                    WindowDragArea(enabled: store.panelPinned)
+                        .padding(EdgeInsets(top: -12, leading: -12, bottom: -5, trailing: -12))
+                )
             if store.isStartingUp {
                 startupCard
             } else if case .crashed = store.state, let line = store.lastOutputLine {
@@ -123,8 +129,8 @@ struct MetricsView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(store.panelPinned ? "Unpin" : "Pin")
             .help(store.panelPinned
-                  ? "Pinned: this panel stays open until you unpin it. Click to unpin."
-                  : "Pin this panel open, so clicking elsewhere, pressing Esc or using its buttons doesn't close it.")
+                  ? "Pinned: this panel stays open until you unpin it, and you can drag it anywhere by its top edge. Click to unpin and snap it back under the menu bar."
+                  : "Pin this panel open, so clicking elsewhere, pressing Esc or using its buttons doesn't close it. Pinned, you can drag it anywhere on screen by its top edge.")
             Button(action: { onAction(.settings) }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12))
@@ -270,15 +276,22 @@ struct MetricsView: View {
                 value: store.gaugeTokensPerSecond.map { min($0 / 100, 1) },
                 color: .blue,
                 center: Fmt.double(store.gaugeTokensPerSecond),
+                detail: store.last?.output.map { "\(Fmt.int($0)) tok" },
                 caption: "tok/s",
-                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. Full ring = 100 tok/s."
+                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. Full ring = 100 tok/s. Below it: tokens the last request generated (Output (last))."
             )
             RingGauge(
-                value: store.gaugePrefillTokensPerSecond.map { min($0 / 500, 1) },
+                // While a prompt prefills, the ring fills with its progress.
+                value: store.prefillFraction
+                    ?? store.gaugePrefillTokensPerSecond.map { min($0 / 500, 1) },
                 color: .purple,
-                center: Fmt.double(store.gaugePrefillTokensPerSecond, 0),
+                // Prefilling: % done, time left under it. Otherwise: speed.
+                center: store.prefillFraction.map { "\(Int($0 * 100))%" }
+                    ?? Fmt.double(store.gaugePrefillTokensPerSecond, 0),
+                detail: store.prefillFraction == nil ? nil
+                    : store.prefillETASeconds.map { Fmt.eta($0) },
                 caption: "prefill",
-                help: "Prefill speed: prompt tokens processed per second right now, or the average since splash started when idle. Full ring = 500 tok/s."
+                help: "While a prompt is prefilling: how much of it is done (the ring fills as it goes) and the estimated time left. Otherwise: prefill speed in tokens per second, from the last prefill or the average since splash started; a full ring = 500 tok/s."
             )
             RingGauge(
                 value: store.gaugeCacheFraction,
@@ -457,11 +470,10 @@ struct MetricsView: View {
             Spacer()
             Button(action: { onAction(.quit) }) {
                 Image(systemName: "power")
-                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 16, height: 16)
             }
             .accessibilityLabel("Quit")
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
+            .buttonStyle(.bordered)
             .help("Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running.")
         }
         .controlSize(.small)
@@ -477,12 +489,81 @@ struct MetricsView: View {
     }
 }
 
+// MARK: - Window dragging
+
+/// Drag handle for the window: SwiftUI doesn't move a borderless panel by
+/// its background on its own. Enabled, it shows an open hand (closed while
+/// dragging) and moves the window; disabled, it ignores the mouse entirely.
+/// A tracking area sets the cursor because cursor rects don't update in a
+/// non-activating panel while another app is active.
+struct WindowDragArea: NSViewRepresentable {
+    let enabled: Bool
+
+    final class DragView: NSView {
+        var enabled = false {
+            didSet { if !enabled, hovering { NSCursor.arrow.set(); hovering = false } }
+        }
+        private var hovering = false
+
+        override var mouseDownCanMoveWindow: Bool { enabled }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            enabled ? super.hitTest(point) : nil
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self))
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            guard enabled else { return }
+            hovering = true
+            NSCursor.openHand.set()
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            // Buttons in the header (pin, settings) keep the arrow.
+            guard enabled else { return }
+            let p = convert(event.locationInWindow, from: nil)
+            let overSelf = window?.contentView?.hitTest(
+                window?.contentView?.convert(event.locationInWindow, from: nil) ?? .zero) === self
+            if bounds.contains(p), overSelf { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            guard hovering else { return }
+            hovering = false
+            NSCursor.arrow.set()
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            guard enabled, let window else { return super.mouseDown(with: event) }
+            NSCursor.closedHand.set()
+            window.performDrag(with: event)
+            NSCursor.openHand.set()
+        }
+    }
+
+    func makeNSView(context: Context) -> DragView { DragView() }
+
+    func updateNSView(_ view: DragView, context: Context) {
+        view.enabled = enabled
+    }
+}
+
 // MARK: - Ring gauge
 
 struct RingGauge: View {
     let value: Double?
     let color: Color
     let center: String
+    /// Optional second line under `center`, e.g. a progress percentage.
+    var detail: String? = nil
     let caption: String
     var help: String = ""
 
@@ -497,8 +578,19 @@ struct RingGauge: View {
                         .stroke(color, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                 }
-                Text(center)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                VStack(spacing: 0) {
+                    Text(center)
+                        .font(.system(size: detail == nil ? 13 : 12, weight: .semibold, design: .rounded))
+                    if let detail {
+                        Text(detail)
+                            .font(.system(size: 9, weight: .medium, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundColor(color)
+                    }
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 7)
             }
             .frame(width: 54, height: 54)
             Text(caption)

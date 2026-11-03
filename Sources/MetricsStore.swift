@@ -349,6 +349,14 @@ enum Fmt {
         return v.formatted(.number.precision(.fractionLength(1))) + "s"
     }
 
+    /// Compact time left: "8s", "1m 05s", "1h 02m".
+    static func eta(_ v: Double) -> String {
+        let s = max(Int(v.rounded()), 0)
+        if s < 60 { return "\(s)s" }
+        if s < 3600 { return String(format: "%dm %02ds", s / 60, s % 60) }
+        return String(format: "%dh %02dm", s / 3600, (s % 3600) / 60)
+    }
+
     static func percent(_ v: Double?) -> String {
         guard let v else { return "—" }
         return (v * 100).formatted(.number.precision(.fractionLength(0))) + "%"

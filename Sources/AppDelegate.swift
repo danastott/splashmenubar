@@ -190,7 +190,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showPanel(anchor: NSButton, anchorWindow: NSWindow) {
+    /// Where the flyout sits when it isn't pinned and moved: just below the
+    /// menu bar, under the status item, clamped into the screen.
+    private func anchoredOrigin(for size: NSSize, anchor: NSButton, anchorWindow: NSWindow) -> NSPoint {
+        let visible = (anchorWindow.screen ?? NSScreen.main)?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 360, height: 640)
+        let anchorFrame = anchorWindow.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        var x = anchorFrame.midX - size.width / 2
+        x = min(max(x, visible.minX + 6), max(visible.minX + 6, visible.maxX - size.width - 6))
+        return NSPoint(x: x, y: visible.maxY - size.height)
+    }
+
+    /// `keepingTopLeft`: rebuild at this top-left corner (a pinned flyout the
+    /// user moved) instead of under the status item.
+    private func showPanel(anchor: NSButton, anchorWindow: NSWindow, keepingTopLeft: NSPoint? = nil) {
         let visible = (anchorWindow.screen ?? NSScreen.main)?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 360, height: 640)
 
@@ -209,10 +222,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Place the card just below the menu bar, under the status item,
         // clamped into the screen — never off the top or the sides.
-        let anchorFrame = anchorWindow.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-        var x = anchorFrame.midX - size.width / 2
-        x = min(max(x, visible.minX + 6), max(visible.minX + 6, visible.maxX - size.width - 6))
-        let y = visible.maxY - size.height
+        var origin = anchoredOrigin(for: size, anchor: anchor, anchorWindow: anchorWindow)
+        if let topLeft = keepingTopLeft {
+            origin = NSPoint(x: topLeft.x, y: topLeft.y - size.height)
+        }
+        let x = origin.x, y = origin.y
 
         let p = MetricsPanel(
             contentRect: NSRect(x: x, y: y, width: size.width, height: size.height),
@@ -225,7 +239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.hasShadow = true
         p.level = store.panelPinned ? .floating : .popUpMenu
         p.onCancel = { [weak self] in self?.dismissPanel() }
-        p.isMovable = false
+        // Draggable only while pinned (see WindowDragArea in the view).
+        p.isMovable = store.panelPinned
         p.hidesOnDeactivate = false
         // The flyout never activates the app; let hover text (.help) show anyway.
         p.allowsToolTipsWhenApplicationIsInactive = true
@@ -255,8 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if size.height > maxH {
             // Now too tall to fit: rebuild with the scrolling layout.
             guard let button = statusItem.button, let win = button.window else { return }
+            let topLeft = store.panelPinned ? NSPoint(x: p.frame.minX, y: p.frame.maxY) : nil
             closePanel()
-            showPanel(anchor: button, anchorWindow: win)
+            showPanel(anchor: button, anchorWindow: win, keepingTopLeft: topLeft)
             return
         }
         var frame = p.frame
@@ -361,8 +377,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings()
         case .togglePin:
             store.panelPinned.toggle()
-            // Pinned, it floats below alerts and dialogs instead of over them.
-            panel?.level = store.panelPinned ? .floating : .popUpMenu
+            guard let p = panel else { return }
+            // Pinned, it floats below alerts and dialogs instead of over them,
+            // and can be dragged anywhere.
+            p.level = store.panelPinned ? .floating : .popUpMenu
+            p.isMovable = store.panelPinned
+            if !store.panelPinned, let button = statusItem.button, let win = button.window {
+                // Unpinned: snap back under the status item.
+                let origin = anchoredOrigin(for: p.frame.size, anchor: button, anchorWindow: win)
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.2
+                    p.animator().setFrame(NSRect(origin: origin, size: p.frame.size), display: true)
+                }
+            }
         case .quit:
             dismissPanel()
             let info = proc.ownsRunningChild
