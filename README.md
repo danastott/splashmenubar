@@ -3,6 +3,10 @@
 A macOS menu bar app that runs `splash serve`, keeps it alive, and shows its
 live inference metrics.
 
+## Screenshots
+
+![The flyout while a request is decoding: tok/s, prefill and cache gauges, GPU/CPU/memory bars, the speed-over-time graph, and per-request and server details](screenshot1.jpeg)
+
 ## What it does
 
 - **Install check**: on launch (and when you press **Start**) the app looks
@@ -64,6 +68,7 @@ live inference metrics.
 ```sh
 make          # builds SplashMenuBar.app (needs the Xcode/CLT Swift toolchain)
 make run      # builds and launches
+make test     # runs the unit tests (XCTest; needs a full Xcode, not just the CLT)
 make clean
 ```
 

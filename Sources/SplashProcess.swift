@@ -282,13 +282,14 @@ final class SplashProcess {
     }
 
     /// Blocks until every pid has exited or `grace` seconds pass, then
-    /// SIGKILLs the survivors.
+    /// SIGKILLs the survivors — re-identified first, so a pid that was
+    /// reused by an unrelated process in the meantime is left alone.
     private static func killAfterGrace(_ pids: [pid_t], grace: TimeInterval) {
         let deadline = Date().addingTimeInterval(grace)
         while Date() < deadline, pids.contains(where: { kill($0, 0) == 0 }) {
             Thread.sleep(forTimeInterval: 0.1)
         }
-        for pid in pids where kill(pid, 0) == 0 {
+        for pid in pids where kill(pid, 0) == 0 && isSplashProcess(pid) {
             kill(pid, SIGKILL)
         }
     }
@@ -306,11 +307,20 @@ final class SplashProcess {
         return Array(pids)
     }
 
-    /// True if the process's command line is splash's (its Python server
-    /// lives under the splash install, and the engine is `splash serve-native`).
+    /// True if the process's command line is splash's. The engine binary is
+    /// named `splash`, and the Python server runs from inside the splash
+    /// install (Homebrew Cellar, a pipx venv, …), so a path token counts
+    /// when `splash` is a whole path component: `…/Cellar/splash/…/python3`,
+    /// `…/engine/splash`. A bare substring never matches, so e.g.
+    /// `~/projects/splashy/train.py` is left alone.
     private static func isSplashProcess(_ pid: pid_t) -> Bool {
         guard let args = runCapture("/bin/ps", ["-o", "args=", "-p", "\(pid)"]) else { return false }
-        return args.lowercased().contains("splash")
+        for token in args.lowercased().split(whereSeparator: { $0 == " " || $0 == "\t" }) {
+            if token == "splash" || token.hasSuffix("/splash") || token.contains("/splash/") {
+                return true
+            }
+        }
+        return false
     }
 
     /// All processes below `pid`, children first.
@@ -434,7 +444,7 @@ final class SplashProcess {
 /// than a thread blocked in `availableData`, so it can be stopped and its
 /// handle closed safely at any time; a final line without a newline is still
 /// delivered at EOF or on cancel.
-private final class OutputReader {
+final class OutputReader {
     private let handle: FileHandle
     private let onLine: (String) -> Void
     private let lock = NSLock()
@@ -459,13 +469,27 @@ private final class OutputReader {
             return
         }
         pending.append(chunk)
-        // Progress bars (tqdm, used for model downloads) redraw with a bare
-        // \r and no \n, so treat \r as a line end as well.
-        while let nl = pending.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
-            let lineData = pending[pending.startIndex..<nl]
-            pending.removeSubrange(pending.startIndex...nl)
-            emit(lineData)
+        let split = Self.splitLines(pending)
+        pending = split.rest
+        for line in split.lines { emit(line) }
+    }
+
+    /// Splits `data` into complete lines and the tail still waiting for its
+    /// terminator. A bare \r counts as a terminator too: progress bars
+    /// (tqdm, used for model downloads) redraw with \r and no \n. A line
+    /// boundary can never fall inside a multibyte UTF-8 character (neither
+    /// 0x0A nor 0x0D occurs in one), so a character split across pipe
+    /// chunks stays in `rest` until its remaining bytes arrive; only an
+    /// unterminated tail at EOF degrades to a replacement glyph.
+    static func splitLines(_ data: Data) -> (lines: [Data], rest: Data) {
+        var lines: [Data] = []
+        var rest = data
+        while let nl = rest.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
+            let line = Data(rest[rest.startIndex..<nl])
+            rest = Data(rest[rest.index(after: nl)...])
+            lines.append(line)
         }
+        return (lines, rest)
     }
 
     /// Stops reading, delivers any unterminated last line, closes the handle.

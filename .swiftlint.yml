@@ -1,0 +1,38 @@
+# SplashMenuBar SwiftLint config.
+#
+# The codebase deliberately uses short local identifiers (p, v, m, r), and
+# snake_case names in StatusDoc (StatusClient.swift) mirror the /status JSON
+# API 1:1, so the identifier rules allow both. Complexity and size rules
+# stay visible as warnings; the error thresholds are set far out so a
+# `swiftlint` run is green but real bloat is still caught.
+
+included:
+  - Sources
+
+identifier_name:
+  min_length: 1
+  max_length: 60
+  # Name regexes; anything matching is exempt from the identifier checks.
+  # `.*_.*` admits snake_case (the /status JSON field mirrors).
+  excluded:
+    - ".*_.*"
+
+line_length:
+  warning: 150
+  error: 300
+
+cyclomatic_complexity:
+  warning: 10
+  error: 30
+
+function_body_length:
+  warning: 50
+  error: 150
+
+type_body_length:
+  warning: 300
+  error: 600
+
+file_length:
+  warning: 400
+  error: 1000

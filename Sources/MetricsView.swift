@@ -270,15 +270,23 @@ struct MetricsView: View {
 
     // MARK: - Gauges
 
+    /// Average decode speed of the samples the speed graph shows — the same
+    /// window as the graph's dotted average line.
+    private var tpsAverage: Double? {
+        let vals = Array(store.tpsHistory.suffix(config.graphSampleWindow))
+        guard !vals.isEmpty else { return nil }
+        return vals.reduce(0, +) / Double(vals.count)
+    }
+
     private var gauges: some View {
         HStack(spacing: 12) {
             RingGauge(
                 value: store.gaugeTokensPerSecond.map { min($0 / 100, 1) },
                 color: .blue,
                 center: Fmt.double(store.gaugeTokensPerSecond),
-                detail: store.last?.output.map { "\(Fmt.int($0)) tok" },
+                detail: tpsAverage.map { "avg \(Fmt.double($0)) t/s" },
                 caption: "tok/s",
-                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. Full ring = 100 tok/s. Below it: tokens the last request generated (Output (last))."
+                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. Full ring = 100 tok/s. Below it: the average of the samples in the speed graph."
             )
             RingGauge(
                 // While a prompt prefills, the ring fills with its progress.

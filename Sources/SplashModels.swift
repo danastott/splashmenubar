@@ -164,7 +164,7 @@ enum SplashModels {
     }
 
     /// True unless the paths are parts of a split GGUF with some missing.
-    private static func splitComplete(_ paths: [String]) -> Bool {
+    static func splitComplete(_ paths: [String]) -> Bool {
         var total: Int?
         var seen = Set<Int>()
         for p in paths {
