@@ -79,6 +79,10 @@ struct SplashConfig: Codable, Equatable {
     /// again (up to `SplashProcess.maxAutoRestarts` attempts in a row before
     /// giving up; a manual Start resets the count).
     var autoRestart: Bool = false
+    /// App setting, not a splash flag: start `splash serve` when the app
+    /// launches. Off by default, so a first launch doesn't download a model
+    /// the user never picked; the flyout shows a setup tip instead.
+    var startServerOnLaunch: Bool = false
     /// App setting, not a splash flag: start the app (and with it the
     /// server) at login, registered via `SMAppService.mainApp`.
     var launchAtLogin: Bool = false
@@ -141,6 +145,7 @@ struct SplashConfig: Codable, Equatable {
          refreshInterval: Double = 2,
          graphMinutes: Int = 5,
          autoRestart: Bool = false,
+         startServerOnLaunch: Bool = false,
          launchAtLogin: Bool = false,
          panelPinned: Bool = false,
          pinnedPanelTopLeft: PanelTopLeft? = nil,
@@ -160,6 +165,7 @@ struct SplashConfig: Codable, Equatable {
         self.refreshInterval = refreshInterval
         self.graphMinutes = graphMinutes
         self.autoRestart = autoRestart
+        self.startServerOnLaunch = startServerOnLaunch
         self.launchAtLogin = launchAtLogin
         self.panelPinned = panelPinned
         self.pinnedPanelTopLeft = pinnedPanelTopLeft
@@ -187,6 +193,7 @@ struct SplashConfig: Codable, Equatable {
         let minutes = try c.decodeIfPresent(Int.self, forKey: .graphMinutes) ?? 5
         graphMinutes = min(max(minutes, 1), Self.graphMinutesChoices.max()!)
         autoRestart = try c.decodeIfPresent(Bool.self, forKey: .autoRestart) ?? false
+        startServerOnLaunch = try c.decodeIfPresent(Bool.self, forKey: .startServerOnLaunch) ?? false
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
         panelPinned = try c.decodeIfPresent(Bool.self, forKey: .panelPinned) ?? false
         pinnedPanelTopLeft = try c.decodeIfPresent(PanelTopLeft.self, forKey: .pinnedPanelTopLeft)
@@ -442,6 +449,11 @@ final class SplashProcess {
         }
     }
 
+    /// Port of an adopted splash the app didn't start, when it differs from
+    /// the configured port (found by `discoverServerPorts`). Stop and
+    /// Restart act on it instead of the configured port.
+    var externalPort: Int?
+
     /// Stop the splash server on our port: our child if we have one,
     /// otherwise a splash server started outside the app (UI "Stop"). Also
     /// cancels a restart in progress.
@@ -464,7 +476,7 @@ final class SplashProcess {
         }
         // No child of ours: shut down a splash serving the port (started
         // outside the app, or left over). Never anything that isn't splash.
-        stopExternalServer(on: lastConfig.port)
+        stopExternalServer(on: externalPort ?? lastConfig.port)
     }
 
     /// SIGTERM our child and the engine under it, SIGKILL whatever is left
@@ -521,6 +533,40 @@ final class SplashProcess {
     /// PIDs of the splash server listening on `port` and its child processes
     /// (the `serve-native` engine). A listener that isn't splash, such as
     /// another app using the port, is never included.
+    /// TCP ports that splash processes are listening on, on any port — for
+    /// finding a splash started outside the app (e.g. `splash serve` in a
+    /// terminal) without knowing its port. Blocking (runs lsof and ps), so
+    /// call it off the main thread; callers confirm each port with a
+    /// /status probe, since the engine may listen on internal ports too.
+    static func discoverServerPorts() -> [Int] {
+        // -F: one field per line: "p<pid>", then "n<address:port>" per socket.
+        guard let out = runCapture("/usr/sbin/lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"])
+        else { return [] }
+        var portsByPID: [pid_t: Set<Int>] = [:]
+        var pid: pid_t?
+        for line in out.split(separator: "\n") {
+            if line.hasPrefix("p") {
+                pid = pid_t(line.dropFirst())
+            } else if line.hasPrefix("n"), let pid,
+                      let colon = line.lastIndex(of: ":"),
+                      let port = Int(line[line.index(after: colon)...]) {
+                portsByPID[pid, default: []].insert(port)
+            }
+        }
+        guard !portsByPID.isEmpty else { return [] }
+        let list = portsByPID.keys.map(String.init).joined(separator: ",")
+        guard let ps = runCapture("/bin/ps", ["-o", "pid=,args=", "-p", list]) else { return [] }
+        var ports = Set<Int>()
+        for row in ps.split(separator: "\n") {
+            let parts = row.trimmingCharacters(in: .whitespaces)
+                .split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2, let p = pid_t(parts[0]),
+                  isSplashCommandLine(parts[1]) else { continue }
+            ports.formUnion(portsByPID[p] ?? [])
+        }
+        return ports.sorted()
+    }
+
     static func findServerPIDs(port: Int) -> [pid_t] {
         var pids = Set<pid_t>()
         for pid in pidList(runCapture("/usr/sbin/lsof", ["-tiTCP:\(port)", "-sTCP:LISTEN"]))
@@ -539,6 +585,14 @@ final class SplashProcess {
     /// `~/projects/splashy/train.py` is left alone.
     private static func isSplashProcess(_ pid: pid_t) -> Bool {
         guard let args = runCapture("/bin/ps", ["-o", "args=", "-p", "\(pid)"]) else { return false }
+        return isSplashCommandLine(args)
+    }
+
+    /// True if a command line is splash's: `splash` as a whole word or path
+    /// component (`splash serve`, `…/engine/splash serve-native`,
+    /// `…/Cellar/splash/…/python3 -m server.server`) — not merely containing
+    /// it (`java -splash:icon.gif`, `…/splashmenubar/…`).
+    static func isSplashCommandLine(_ args: String) -> Bool {
         for token in args.lowercased().split(whereSeparator: { $0 == " " || $0 == "\t" }) {
             if token == "splash" || token.hasSuffix("/splash") || token.contains("/splash/") {
                 return true
@@ -597,10 +651,11 @@ final class SplashProcess {
         // from an earlier run of the app) may hold the old or the new port.
         // Only splash processes are stopped; if something else holds the new
         // port, splash fails to start and the crash card says why.
-        let oldPort = lastConfig.port
+        let oldPorts = Set([lastConfig.port, config.port] + (externalPort.map { [$0] } ?? []))
         lastConfig = config
-        var pids = Set(Self.findServerPIDs(port: oldPort))
-        if config.port != oldPort { pids.formUnion(Self.findServerPIDs(port: config.port)) }
+        externalPort = nil
+        var pids = Set<pid_t>()
+        for port in oldPorts { pids.formUnion(Self.findServerPIDs(port: port)) }
         guard !pids.isEmpty else {
             start(config)
             return

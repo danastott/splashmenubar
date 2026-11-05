@@ -72,6 +72,12 @@ final class MetricsStore: ObservableObject {
     @Published var system = SystemUsage()
     /// The flyout is pinned open (UI state, not from splash).
     @Published var panelPinned = false
+    /// Show the first-launch "pick a model in Settings, then Start" tip
+    /// (UI state; cleared on Start, on Save in Settings, or when dismissed).
+    @Published var showSetupTip = false
+    /// Port of the splash server the app is watching: the configured port,
+    /// or that of a splash found running elsewhere (nil = the configured one).
+    @Published var serverPort: Int?
     /// User-picked gauge colors by gauge id ("tok", "prefill", "cached",
     /// "gpu", "cpu", "mem", "graph"), as "#RRGGBB" hex — the live copy the
     /// flyout renders from; the app persists it on every change.

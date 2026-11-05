@@ -9,6 +9,7 @@ final class SplashConfigTests: XCTestCase {
     func testNewAppFieldsRoundTrip() throws {
         var c = SplashConfig.default
         c.launchAtLogin = true
+        c.startServerOnLaunch = true
         c.panelPinned = true
         c.pinnedPanelTopLeft = SplashConfig.PanelTopLeft(x: 123.5, y: 640.0)
         let data = try JSONEncoder().encode(c)
@@ -32,6 +33,8 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertEqual(c.refreshInterval, 1)
         XCTAssertFalse(c.autoRestart)
         XCTAssertFalse(c.launchAtLogin)
+        // Files from before the option existed load with it off.
+        XCTAssertFalse(c.startServerOnLaunch)
         XCTAssertFalse(c.panelPinned)
         XCTAssertNil(c.pinnedPanelTopLeft)
     }
@@ -155,6 +158,7 @@ final class SplashConfigTests: XCTestCase {
         c.maxMemory = "28G"
         c.autoRestart = true
         c.launchAtLogin = true
+        c.startServerOnLaunch = true
         c.theme = .dark
         c.gaugeColors = ["tok": "#123456"]
         let m = SettingsModel(config: c)
@@ -178,6 +182,7 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertEqual(m.maxMemory, "")
         XCTAssertFalse(m.autoRestart)
         XCTAssertFalse(m.launchAtLogin)
+        XCTAssertFalse(m.startServerOnLaunch)
         XCTAssertEqual(m.refreshInterval, d.refreshInterval)
         XCTAssertEqual(m.graphMinutes, d.graphMinutes)
         // The reset form is valid and maps to the defaults on Save.
@@ -189,5 +194,31 @@ final class SplashConfigTests: XCTestCase {
         // A reset clears the gauge colors a following Save would carry.
         XCTAssertTrue(m.resetToDefaultsApplied)
         XCTAssertTrue(m.asConfig.gaugeColors.isEmpty)
+    }
+
+    /// Starting the server on launch is opt-in, and the form carries it
+    /// through to Save.
+    func testStartServerOnLaunchDefaultsOffAndSaves() {
+        XCTAssertFalse(SplashConfig.default.startServerOnLaunch)
+        let m = SettingsModel(config: .default)
+        XCTAssertFalse(m.startServerOnLaunch)
+        m.startServerOnLaunch = true
+        XCTAssertTrue(m.asConfig.startServerOnLaunch)
+        // An app-only setting: toggling it never changes the splash command.
+        XCTAssertEqual(m.asConfig.serveArguments, SplashConfig.default.serveArguments)
+    }
+
+    /// Discovery and Stop only treat real splash command lines as splash.
+    func testSplashCommandLineMatching() {
+        XCTAssertTrue(SplashProcess.isSplashCommandLine(
+            "/opt/homebrew/Cellar/splash/1.5.0/libexec/python/bin/python3 -u -P -m server.server /x --model a/b:C"))
+        XCTAssertTrue(SplashProcess.isSplashCommandLine(
+            "/opt/homebrew/Cellar/splash/1.5.0/libexec/engine/splash serve-native /x 98304 auto"))
+        XCTAssertTrue(SplashProcess.isSplashCommandLine("splash serve --model a/b:C --port 8081"))
+        XCTAssertFalse(SplashProcess.isSplashCommandLine(
+            "/usr/bin/java -splash:/Applications/Data Admin.app/Contents/Resources/icon.gif -jar x.jar"))
+        XCTAssertFalse(SplashProcess.isSplashCommandLine(
+            "/Users/me/projects/splashmenubar/SplashMenuBar.app/Contents/MacOS/SplashMenuBar"))
+        XCTAssertFalse(SplashProcess.isSplashCommandLine("python3 -m http.server 8000"))
     }
 }

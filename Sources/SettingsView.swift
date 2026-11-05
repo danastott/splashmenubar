@@ -18,6 +18,7 @@ final class SettingsModel: ObservableObject {
     @Published var refreshInterval: Double
     @Published var graphMinutes: Int
     @Published var autoRestart: Bool
+    @Published var startServerOnLaunch: Bool
     @Published var launchAtLogin: Bool
     @Published var theme: UITheme
     /// True once "Reset to defaults" was pressed, so a following Save also
@@ -102,6 +103,7 @@ final class SettingsModel: ObservableObject {
         refreshInterval = config.refreshInterval
         graphMinutes = config.graphMinutes
         autoRestart = config.autoRestart
+        startServerOnLaunch = config.startServerOnLaunch
         launchAtLogin = config.launchAtLogin
         theme = config.theme
 
@@ -156,6 +158,7 @@ final class SettingsModel: ObservableObject {
         c.refreshInterval = refreshInterval
         c.graphMinutes = graphMinutes
         c.autoRestart = autoRestart
+        c.startServerOnLaunch = startServerOnLaunch
         c.launchAtLogin = launchAtLogin
         c.theme = theme
         // The flyout's pin state and position live with the app, not the
@@ -201,6 +204,7 @@ final class SettingsModel: ObservableObject {
         refreshInterval = d.refreshInterval
         graphMinutes = d.graphMinutes
         autoRestart = d.autoRestart
+        startServerOnLaunch = d.startServerOnLaunch
         launchAtLogin = d.launchAtLogin
         theme = d.theme
         didResetToDefaults = true
@@ -302,7 +306,11 @@ struct SettingsView: View {
                 Toggle("", isOn: $settings.autoRestart)
                     .frame(width: 160)
             }
-            field("Launch at login", help: "Start Splash Menu Bar when you log in, so the splash server runs without opening the app. Registered as a system login item (System Settings → General → Login Items); changing it does not restart the server.") {
+            field("Start 'splash' server on launch", help: "Start the splash server with the model above whenever Splash Menu Bar launches. Off by default: the app opens with the server stopped (a splash already running on the port is still picked up), and you press Start. Changing it does not restart the server.") {
+                Toggle("", isOn: $settings.startServerOnLaunch)
+                    .frame(width: 160)
+            }
+            field("Launch at login", help: "Start Splash Menu Bar when you log in — with Start 'splash' server on launch also on, the splash server comes up without opening the app. Registered as a system login item (System Settings → General → Login Items); changing it does not restart the server.") {
                 Toggle("", isOn: $settings.launchAtLogin)
                     .frame(width: 160)
             }

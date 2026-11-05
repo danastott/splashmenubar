@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 enum MenuAction {
-    case start, stop, restart, settings, quit, togglePin
+    case start, stop, restart, settings, quit, togglePin, dismissSetupTip
 }
 
 struct MetricsView: View {
@@ -48,6 +48,9 @@ struct MetricsView: View {
                     WindowDragArea(enabled: store.panelPinned)
                         .padding(EdgeInsets(top: -12, leading: -12, bottom: -5, trailing: -12))
                 )
+            if store.showSetupTip, !store.effectiveRunning, !store.isStartingUp {
+                setupTipCard
+            }
             if store.isStartingUp {
                 startupCard
             } else if case .crashed(let info) = store.state {
@@ -250,7 +253,7 @@ struct MetricsView: View {
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundColor(.secondary)
             }
-            Text("A splash server started outside the app is serving port \(config.port), so the app uses that one. Restart runs splash from the app instead.")
+            Text("A splash server started outside the app is serving port \(store.serverPort ?? config.port), so the app uses that one. Restart runs splash from the app instead.")
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -264,7 +267,7 @@ struct MetricsView: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.08)))
-        .help("The splash this app started exited, but an externally started splash is serving port \(config.port) — the app is using that server. Restart shuts it down and runs splash from the app with the current settings.")
+        .help("The splash this app started exited, but an externally started splash is serving port \(store.serverPort ?? config.port) — the app is using that server. Restart shuts it down and runs splash from the app with the current settings.")
     }
 
     /// The child exited because a service that is NOT splash holds the
@@ -324,6 +327,38 @@ struct MetricsView: View {
 
     private var failuresSuffix: String {
         store.engineFailures > 0 ? " \(store.engineFailures) engine failure\(store.engineFailures == 1 ? "" : "s") since startup." : ""
+    }
+
+    /// First launch with no server running: point at Settings to pick a
+    /// model, then Start (the server no longer starts on its own by default).
+    private var setupTipCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "lightbulb")
+                    .foregroundColor(.yellow)
+                Text("Get started")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Button(action: { onAction(.dismissSetupTip) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss tip")
+                .help("Hide this tip.")
+            }
+            Text("No splash server is running. Open Settings to choose a splash model, then press ▶ Start. To have the server start whenever the app launches, turn on Start 'splash' server on launch.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Open Settings…", action: { onAction(.settings) })
+                .controlSize(.small)
+                .help("Choose a model and other splash options.")
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.yellow.opacity(0.12)))
     }
 
     private func warningCard(_ warn: (title: String, detail: String, color: Color)) -> some View {
@@ -794,8 +829,9 @@ struct MetricsView: View {
     }
 
     private var endpointURL: URL {
-        let s = store.readyURL ?? "http://127.0.0.1:\(config.port)"
-        return URL(string: s) ?? URL(string: "http://127.0.0.1:\(config.port)")!
+        let port = store.serverPort ?? config.port
+        let s = store.readyURL ?? "http://127.0.0.1:\(port)"
+        return URL(string: s) ?? URL(string: "http://127.0.0.1:\(port)")!
     }
 
     private func parseContext(_ s: String?) -> Int? {

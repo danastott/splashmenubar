@@ -44,10 +44,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var installWindow: NSWindow?
     private var installModel: InstallModel?
     private var pollTask: Task<Void, Never>?
+    /// Scans for a splash started outside the app while none is connected.
+    private var discoveryTask: Task<Void, Never>?
+    /// Seconds between scans for an externally started splash.
+    private static let discoveryInterval: TimeInterval = 5
     private let thermalSensor = ThermalSensor()
     private let systemMonitor = SystemMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // No settings file yet: this is the app's first launch.
+        let firstLaunch = !FileManager.default.fileExists(atPath: SplashConfig.configURL.path)
         let loaded = SplashConfig.load()
         config = loaded.config
         store.gaugeColors = config.gaugeColors
@@ -176,9 +182,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         watchNotificationTriggers()
 
-        // Requirement: launching the menu bar app starts splash — once the
-        // CLI is installed; otherwise offer to install it first.
-        startServer()
+        // Start splash only if the user asked for it in Settings (off by
+        // default). First, though, look for a splash that's already running
+        // — on any port — and connect to it; with none, start ours (if asked
+        // to) or show the tip to pick a model. A missing CLI is offered first.
+        if !SplashInstaller.isSplashInstalled {
+            promptInstall(thenStart: config.startServerOnLaunch)
+        } else {
+            connectOrSetUp(openFlyout: firstLaunch, startIfNone: config.startServerOnLaunch)
+        }
+        // Afterwards, keep checking for a splash started outside the app.
+        startDiscovery()
 
         // A pinned flyout comes back pinned, where the user left it.
         if config.panelPinned {
@@ -612,7 +626,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 self.store.chipTemperatureC = self.thermalSensor?.celsius()
                 self.store.system = self.systemMonitor.sample()
-                let port = self.config.port
+                // The configured port, or a splash found running elsewhere.
+                let port = self.store.serverPort ?? self.config.port
                 // Time out well before a minute so a stalled server can't
                 // freeze the flyout; the next poll tries again.
                 let timeout = min(max(interval * 2, 2), 10)
@@ -630,6 +645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleAction(_ action: MenuAction) {
         switch action {
         case .start:
+            store.showSetupTip = false
             dismissPanel()
             startServer()
         case .stop:
@@ -645,10 +661,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                           info: "Requests in progress are cancelled and the model is reloaded with the current settings.",
                           button: "Restart") else { return }
             store.resetForRestart()
+            store.serverPort = nil   // ours restarts on the configured port
             proc.restart(with: config)
         case .settings:
             dismissPanel()
             openSettings()
+        case .dismissSetupTip:
+            store.showSetupTip = false
         case .togglePin:
             store.panelPinned.toggle()
             persistPanelState()
@@ -702,7 +721,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch await StatusClient.probe(port: self.config.port, timeout: 1.5) {
             case .splash:
-                return   // external splash on the port: the poll loop picks it up
+                self.adopt(port: self.config.port)   // external splash on our port
             case .other:
                 // Something that isn't splash holds the port: spawning a
                 // child would just die with "address in use" — say so.
@@ -710,12 +729,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.store.state = .crashed(CrashInfo(
                     code: 0, bySignal: false, note: "port in use"))
             case .nothing:
+                // Our own server, on the configured port.
+                self.store.serverPort = nil
+                self.proc.externalPort = nil
                 self.proc.start(self.config)
             }
         }
     }
 
-    private func promptInstall() {
+    // MARK: - Finding a running splash
+
+    /// The port of a splash server that's already running, if any: the
+    /// configured port first, then any port a splash process listens on
+    /// (each confirmed with a /status probe).
+    private func findRunningServer() async -> Int? {
+        let configured = config.port
+        if case .splash = await StatusClient.probe(port: configured, timeout: 1.5) {
+            return configured
+        }
+        let candidates = await Task.detached(priority: .utility) {
+            SplashProcess.discoverServerPorts()
+        }.value
+        for port in candidates where port != configured {
+            if case .splash = await StatusClient.probe(port: port, timeout: 1.5) {
+                return port
+            }
+        }
+        return nil
+    }
+
+    /// Watch the splash on `port` (the poll loop, Stop and Restart follow it).
+    private func adopt(port: Int) {
+        let external = port == config.port ? nil : port
+        store.serverPort = external
+        proc.externalPort = external
+        store.showSetupTip = false
+        startPolling()   // poll it now rather than after the interval
+    }
+
+    /// Connects to a running splash if there is one; otherwise starts ours
+    /// (`startIfNone`) or shows the "pick a model, then Start" tip — opening
+    /// the flyout so it's seen when `openFlyout` (first launch).
+    private func connectOrSetUp(openFlyout: Bool, startIfNone: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let port = await self.findRunningServer() {
+                self.adopt(port: port)
+                return
+            }
+            if startIfNone {
+                self.startServer()
+                return
+            }
+            self.store.showSetupTip = true
+            if openFlyout, !self.panelVisible,
+               let button = self.statusItem.button, let win = button.window {
+                self.showPanel(anchor: button, anchorWindow: win)
+            }
+        }
+    }
+
+    /// Every few seconds while no server is connected (and the app isn't
+    /// running or starting its own), look for a splash started elsewhere —
+    /// e.g. `splash serve` in a terminal — and connect to it.
+    private func startDiscovery() {
+        discoveryTask?.cancel()
+        discoveryTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.discoveryInterval * 1_000_000_000))
+                guard let self else { return }
+                guard !self.store.effectiveRunning, !self.store.isStartingUp,
+                      SplashInstaller.isSplashInstalled
+                else { continue }
+                if let port = await self.findRunningServer(),
+                   !self.store.effectiveRunning {   // nothing else connected meanwhile
+                    self.adopt(port: port)
+                }
+            }
+        }
+    }
+
+    /// `thenStart`: start the server once installed (the user pressed Start
+    /// or start-on-launch is on); otherwise show the setup tip instead.
+    private func promptInstall(thenStart: Bool = true) {
         if let w = installWindow {
             NSApp.activate(ignoringOtherApps: true)
             w.makeKeyAndOrderFront(nil)
@@ -755,19 +851,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let copyButton: NSApplication.ModalResponse = brew != nil ? .alertSecondButtonReturn : .alertFirstButtonReturn
 
         if let brew, response == .alertFirstButtonReturn {
-            runInstall(brew: brew)
+            runInstall(brew: brew, thenStart: thenStart)
         } else if response == copyButton {
             copyInstallCommand()
         }
         // "Not Now" / after copying: stay stopped; Start in the flyout re-checks.
     }
 
-    private func runInstall(brew: String) {
+    private func runInstall(brew: String, thenStart: Bool) {
         let model = InstallModel()
         let view = InstallView(model: model) { [weak self] installed in
             guard let self else { return }
             self.closeInstallWindow()
-            if installed { self.startServer() }
+            if installed {
+                self.connectOrSetUp(openFlyout: !thenStart, startIfNone: thenStart)
+            }
         }
         let w = NSWindow(contentViewController: NSHostingController(rootView: view))
         w.title = "Splash Menu Bar — Install splash"
@@ -824,6 +922,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if !settings.resetToDefaultsApplied {
                     new.gaugeColors = self.store.gaugeColors
                 }
+                // Saving Settings is the step the setup tip asks for.
+                self.store.showSetupTip = false
                 if new != self.config {
                     // Only splash options restart the server; the refresh
                     // interval is the app's own and applies on the next poll.
@@ -842,6 +942,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     if serverChanged {
                         self.store.resetForRestart()
+                        self.store.serverPort = nil   // ours restarts on the configured port
                         self.proc.restart(with: new)
                     } else {
                         // Wake the poll loop now instead of after the old interval.

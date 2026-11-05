@@ -1,10 +1,9 @@
 # Splash Menu Bar
 
-A macOS menu bar app that runs `splash serve`, keeps it alive, and shows its
-live inference metrics.
-
-Licensed under the [Apache License 2.0](LICENSE) — see the LICENSE file for
-the full legal text.
+A macOS menu bar utility that runs `splash serve`, keeps the process alive,
+and surfaces its live inference metrics. [Splash](https://github.com/incoai/splash)
+is incoai's local inference engine for Apple silicon. This app is a companion
+to it, not part of that project.
 
 ## Screenshots
 
@@ -21,57 +20,67 @@ and the footer actions.
 
 ## What it does
 
-- **Install check**: on launch (and when you press **Start**) the app looks
-  for `splash` on its PATH. If it's missing, it asks you to either install it
-  yourself (**Copy Command** copies `brew install incoai/tap/splash`) or
-  authorize the app to run that Homebrew install for you, with live output
-  in a progress window. If the install goes silent for 5 minutes (a stalled
-  network, or an Xcode license brew can't ask for non-interactively) it says
-  so and suggests `sudo xcodebuild -license accept`. The server starts
-  automatically once the install succeeds. If Homebrew itself isn't found,
-  it points you to https://brew.sh.
-- **Auto-start**: launching the app starts `splash serve` with the configured
-  parameters (see Settings below).
+- **Install check**: at launch (and whenever you press **Start**) the app
+  looks for `splash` on its PATH. If it is missing, it offers to either have
+  you install it yourself (**Copy Command** copies `brew install incoai/tap/splash`)
+  or let the app run that Homebrew install for you, streaming live output in
+  a progress window. If the install goes quiet for 5 minutes (a stalled
+  network, or an Xcode license that brew cannot ask for non-interactively)
+  it says so and suggests `sudo xcodebuild -license accept`. Once the install
+  succeeds, the server starts if you pressed Start (or Start 'splash' server
+  on launch is on); otherwise the flyout shows the Get started tip. If
+  Homebrew itself is not found, it points you to https://brew.sh.
+- **Finds a running splash**: at launch the app looks for a splash server
+  that is already running — on the configured port, or on any port a splash
+  process is listening on (located with `lsof`/`ps`, confirmed via `/status`)
+  — and attaches to it. While none is connected it keeps checking every 5 s,
+  so a `splash serve` started later in a terminal is picked up automatically.
+  Stop and Restart act on that server's port.
+- **Start on launch (opt-in)**: if no splash is running at launch and
+  **Start 'splash' server on launch** is on in Settings, the app launches
+  `splash serve` with the configured parameters. It is off by default: the
+  flyout shows a **Get started** tip instead (pick a model in Settings, then
+  press Start), and on the very first launch it opens the flyout so the tip
+  is seen.
 - **Start / Stop / Restart**: the flyout's icon buttons switch between a
-  green ▶ **Start** and a red ■ **Stop** based on whether a server is actually
-  serving the configured port. Stop, Restart and Quit (⏻) ask for
-  confirmation first. **Stop** shuts the server down even when it
-  was started outside the app: it finds the splash server listening on the
-  port and its `serve-native` engine, SIGTERMs them, and SIGKILLs after 5 s.
-  A process on the port that isn't splash is never touched, and a `/status`
-  reply that isn't splash's isn't mistaken for a running server. If the server
-  dies on its own the flyout shows a crash card (how it died, plus its last
-  output lines) and offers to start it again — or, with **Auto-restart** on in
-  Settings, starts it again automatically after a moment: up to 3 consecutive
-  crashes, then it gives up (pressing Start resets the count; a Stop always
-  cancels a pending restart).
-  Quitting the app stops only its own server (and its engine, waiting up to
-  3 s so nothing is left holding the model); an externally started server is
-  left running.
+  green ▶ **Start** and a red ■ **Stop** depending on whether a server is
+  actually serving the configured port. Stop, Restart and Quit (⏻) ask for
+  confirmation first. **Stop** shuts the server down even when it was started
+  outside the app: it locates the splash server listening on the port plus
+  its `serve-native` engine, SIGTERMs both, then SIGKILLs after 5 s. A
+  process on the port that is not splash is never touched, and a `/status`
+  reply that is not splash's is not mistaken for a running server. If the
+  server dies on its own the flyout shows a crash card (how it died, plus its
+  last output lines) and offers to start it again — or, with **Auto-restart**
+  on in Settings, starts it again automatically after a moment: up to 3
+  consecutive crashes, then it gives up (pressing Start resets the count; a
+  Stop always cancels a pending restart). Quitting the app stops only its own
+  server (and its engine, waiting up to 3 s so nothing is left holding the
+  model); an externally started server is left running.
 - **Pin**: the pin icon in the flyout's header keeps the flyout open: clicking
   elsewhere, pressing Esc, clicking the menu bar item or using its buttons no
-  longer closes it, until you click the pin again to unpin it. While pinned
-  you can drag it anywhere on screen by its top edge (the pointer turns into
-  a hand there); unpinning snaps it back
-  under the menu bar item. The pin state and the pinned position persist
-  across app restarts: a pinned flyout comes back pinned where you left it
-  (or under the menu bar item if that spot is no longer on any screen).
+  longer closes it until you click the pin again to unpin it. While pinned you
+  can drag it anywhere on screen by its top edge (the pointer turns into a
+  hand there); unpinning snaps it back under the menu bar item. The pin state
+  and the pinned position persist across app restarts: a pinned flyout comes
+  back pinned where you left it (or under the menu bar item if that spot is no
+  longer on any screen).
 - **Startup progress**: until splash reports Ready, the flyout shows a
-  *Starting up* card: the current stage (preparing, downloading
-  `owner/repo`, loading weights, starting the server), a progress bar with
-  size, speed and time left while the model downloads, elapsed time, and the
-  latest line splash printed. The menu bar reads `● 42%` during a download, the dot yellow while starting up, green once serving with no requests yet (the flyout's status dot uses the same colors),
-  and its tooltip names the stage. If splash exits, the flyout shows its
-  last output line.
+  *Starting up* card: the current stage (preparing, downloading `owner/repo`,
+  loading weights, starting the server), a progress bar with size, speed and
+  time left while the model downloads, elapsed time, and the latest line
+  splash printed. The menu bar reads `● 42%` during a download, the dot is
+  yellow while starting up, green once serving with no requests yet (the
+  flyout's status dot uses the same colors), and its tooltip names the stage.
+  If splash exits, the flyout shows its last output line.
 - **Live metrics** from the server's `GET /status` endpoint, polled every
   2 s by default (configurable):
   - **tok/s gauge** (live decode batch, falling back to the lifetime decode
-    speed and the last log-parsed request), a **prefill gauge** (the
-    running prefill batch's tok/s, falling back to the lifetime prefill
-    speed; full ring = 500 tok/s) and a **cache-hit gauge**: the lifetime
-    KV hit rate — the share of prompt tokens served from the cache instead
-    of being prefilled again (the per-request figure is LAST REQUEST →
-    "Input / cached")
+    speed and the last log-parsed request), a **prefill gauge** (the running
+    prefill batch's tok/s, falling back to the lifetime prefill speed; full
+    ring = 500 tok/s) and a **cache-hit gauge**: the lifetime KV hit rate —
+    the share of prompt tokens served from the cache instead of being
+    prefilled again (the per-request figure is LAST REQUEST → "Input / cached")
   - **tok/s line graph over time** (sampled from the polled status), with a
     0-based Y axis labeled at round steps and a dotted average line
   - load: completed/cancelled/failed requests, TTFT p50/p95, prefill and
@@ -155,15 +164,18 @@ Other GGUF variants of the supported repos found there are listed too.
 
 Below the splash options, **UI refresh** sets how often the app polls
 `/status` to update the flyout and menu bar: 500 ms, 1 s, 2 s (default), 5 s
-or 10 s. It's stored in the same file as `refreshInterval`; changing only this
-doesn't restart the server. **Speed graph span** sets how many minutes of
-generation the tok/s graph shows: 1, 3, 5 (default), 10, 15 or 30 min, stored
-as `graphMinutes`; it also doesn't restart the server. **Auto-restart** (stored
-as `autoRestart`) restarts the server automatically if it exits on its own —
-up to 3 consecutive crashes before giving up; changing only this doesn't
-restart the server. **Launch at login** (stored as `launchAtLogin`) registers
+or 10 s. It is stored in the same file as `refreshInterval`; changing only
+this does not restart the server. **Speed graph span** sets how many minutes
+of generation the tok/s graph shows: 1, 3, 5 (default), 10, 15 or 30 min,
+stored as `graphMinutes`; it also does not restart the server. **Auto-restart**
+(stored as `autoRestart`) restarts the server automatically if it exits on its
+own — up to 3 consecutive crashes before giving up; changing only this does
+not restart the server. **Start 'splash' server on launch** (stored as
+`startServerOnLaunch`, off by default) starts splash whenever the app
+launches. **Launch at login** (stored as `launchAtLogin`) registers
 the app as a system login item (System Settings › General › Login Items), so
-it — and the splash server — start when you log in; a registration failure is
+it starts when you log in — and the splash server too, with Start server on
+launch on; a registration failure is
 reported and not saved. **Appearance** (stored as `theme`) picks the UI's
 color scheme — System, Light or Dark — for the flyout and every window.
 **Reset to defaults** in the footer puts every field
@@ -174,12 +186,12 @@ saved until you press Save.
 bar (GPU, CPU, Mac RAM) or the DECODE SPEED graph and choose **Color…** to
 open the system color panel for that element — it updates the gauge as you
 pick, and the choice persists in the same file (`gaugeColors`). (A color
-well can't sit inside a context menu on macOS, hence the panel.) The Mac
+well cannot sit inside a context menu on macOS, hence the panel.) The Mac
 RAM bar shows its pressure color (yellow/red) instead of a picked color
 while the server reports warning or critical memory pressure.
 
-Every element in the flyout and the Settings window has hover text explaining
-it.
+Every element in the flyout and the Settings window carries hover text
+explaining it.
 
 `splash` is resolved from `PATH`; since apps launched from Finder get a
 minimal PATH, `/opt/homebrew/bin`, `/usr/local/bin`, and `~/.local/bin` are
@@ -193,12 +205,12 @@ prepended automatically.
   (Started/Done requests, thermal transitions, the Ready line, weights load,
   and startup stages). Lines are split on `\r` as well as `\n` so download
   progress bars come through, and the child gets `TQDM_POSITION=-1`, which
-  makes huggingface_hub draw its byte-level bars even though stderr isn't a
+  makes huggingface_hub draw its byte-level bars even though stderr is not a
   TTY.
 - `StatusClient` polls `http://127.0.0.1:<port>/status` every 2 s through a
   small `URLProtocol` that opens the loopback socket directly, so system
-  proxy settings (including PAC configs that route 127.0.0.1) can't
-  intercept the poll; a single failed poll doesn't flip the ready state —
+  proxy settings (including PAC configs that route 127.0.0.1) cannot
+  intercept the poll; a single failed poll does not flip the ready state —
   two consecutive failures do. The same port probe classifies what answers
   on the port (splash, another service, or nothing), which is what drives
   adoption and the "port in use" card. `MetricsStore` merges the polled
