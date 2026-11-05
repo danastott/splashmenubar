@@ -2,6 +2,19 @@ import SwiftUI
 import Combine
 import AppKit
 
+/// The app's version from Info.plist: the short version with the build
+/// number in parentheses when it differs ("1.0 (2)"); "?" when the bare
+/// binary runs outside the .app bundle. (Defined here, not in main.swift,
+/// so the test build — which excludes main.swift — still sees it.)
+let appVersion: String = {
+    let info = Bundle.main.infoDictionary
+    let short = (info?["CFBundleShortVersionString"] as? String) ?? "?"
+    guard let build = info?["CFBundleVersion"] as? String, build != short else {
+        return short
+    }
+    return "\(short) (\(build))"
+}()
+
 /// Editable form state for the `splash serve` parameters.
 final class SettingsModel: ObservableObject {
     @Published var model: String
@@ -338,6 +351,11 @@ struct SettingsView: View {
                     .disabled(!settings.isValid)
                     .help("Save these options to ~/.splashmenubar.json and restart splash with them.")
             }
+            Text("Splash Menu Bar \(appVersion)")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("The version of this app (from its bundle).")
         }
         .padding(16)
         .frame(width: 440)

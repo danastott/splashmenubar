@@ -133,6 +133,7 @@ and the footer actions.
 make          # builds SplashMenuBar.app (needs the Xcode/CLT Swift toolchain)
 make run      # builds and launches
 make test     # runs the unit tests (XCTest; needs a full Xcode, not just the CLT)
+make version VERSION=1.1.0   # sets the app version in Info.plist (build = 110)
 make clean
 ```
 

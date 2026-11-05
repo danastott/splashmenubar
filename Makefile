@@ -50,7 +50,15 @@ test: $(SOURCES) $(TESTSRC)
 	@printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>CFBundleExecutable</key><string>$(APP)Tests.dylib</string>\n<key>CFBundleIdentifier</key><string>local.splashmenubar.tests</string>\n<key>CFBundlePackageType</key><string>BNDL</string>\n</dict></plist>\n' > $(TESTBUNDLE)/Contents/Info.plist
 	DEVELOPER_DIR=$(DEV) xcrun xctest $(TESTBUNDLE)
 
+# Set the app version in Info.plist (short version, build = digits only):
+#   make version VERSION=1.1.0   ->   1.1.0 (build 110)
+version:
+	@test -n "$(VERSION)" || { echo "usage: make version VERSION=x.y.z"; exit 1; }
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" Info.plist
+	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(shell echo $(VERSION) | tr -d .)" Info.plist
+	@echo "Info.plist: $(VERSION) (build $(shell echo $(VERSION) | tr -d .))"
+
 clean:
 	rm -rf build $(APP).app
 
-.PHONY: all run clean test
+.PHONY: all run clean test version
