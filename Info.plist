@@ -8,8 +8,8 @@
 	<string>SplashMenuBar</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<key>CFBundleIdentifier</key>
-	<string>local.splashmenubar</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.danastott.splashmenubar</string>
 	<key>CFBundleName</key>
 	<string>SplashMenuBar</string>
 	<key>CFBundlePackageType</key>
@@ -24,7 +24,7 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<key>NSHumanReadableCopyright</key>
-	<string>Splash menu bar metrics</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 danastott. Licensed under the Apache License 2.0.</string>
 </dict>
 </plist>
