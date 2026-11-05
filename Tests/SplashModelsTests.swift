@@ -42,4 +42,34 @@ final class SplashModelsTests: XCTestCase {
         XCTAssertEqual(plain.repo, "owner/repo")
         XCTAssertNil(plain.variant)
     }
+
+    func testParseSuggestedModels() {
+        let tsv = """
+        # The models Splash suggests, best first.
+        unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M\tQwen3.8-27B\t36\t21\tStrongest at this size, slower
+        mlx-community/Qwen3.8-27B-4bit\tQwen3.8-27B\t36\t20\tStrongest at this size, slower
+
+        owner/broken-row
+        """
+        let models = SplashModels.parseSuggestedModels(tsv)
+        XCTAssertEqual(models.count, 2)
+        let gguf = models[0]
+        XCTAssertEqual(gguf.id, "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M")
+        XCTAssertEqual(gguf.label, "Qwen3.8-27B · GGUF UD-Q4_K_M")
+        XCTAssertEqual(gguf.minMemoryGB, 36)
+        XCTAssertEqual(gguf.downloadGB, 21)
+        XCTAssertEqual(gguf.about, "Strongest at this size, slower")
+        let mlx = models[1]
+        XCTAssertEqual(mlx.id, "mlx-community/Qwen3.8-27B-4bit")
+        XCTAssertEqual(mlx.label, "Qwen3.8-27B · MLX 4-bit")
+        XCTAssertEqual(mlx.minMemoryGB, 36)
+        XCTAssertEqual(mlx.downloadGB, 20)
+    }
+
+    func testParseSuggestedModelsSkipsMalformed() {
+        XCTAssertEqual(SplashModels.parseSuggestedModels("").isEmpty, true)
+        XCTAssertEqual(SplashModels.parseSuggestedModels("# only a comment\n").isEmpty, true)
+        let models = SplashModels.parseSuggestedModels("a/b\tName\t8\t4\n")
+        XCTAssertEqual(models.isEmpty, true)
+    }
 }

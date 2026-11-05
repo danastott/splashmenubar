@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum MenuAction {
     case start, stop, restart, settings, quit, togglePin
@@ -7,9 +8,12 @@ enum MenuAction {
 struct MetricsView: View {
     @ObservedObject var store: MetricsStore
     let config: SplashConfig
-    /// When set, the body scrolls and the whole view is this tall.
+    /// When set, the body scrolls and the whole view is this height.
     var maxHeight: CGFloat? = nil
     let onAction: (MenuAction) -> Void
+    /// Right-clicking a gauge opens its color panel (the system
+    /// NSColorPanel): the app applies and persists the pick.
+    var onOpenGaugeColorPanel: ((String) -> Void)? = nil
 
     private let controlBarHeight: CGFloat = 42
 
@@ -32,6 +36,7 @@ struct MetricsView: View {
         }
         .background(RoundedRectangle(cornerRadius: 12).fill(.regularMaterial))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.1), lineWidth: 1))
+        .preferredColorScheme(config.theme.colorScheme)
     }
 
     private var content: some View {
@@ -45,19 +50,38 @@ struct MetricsView: View {
                 )
             if store.isStartingUp {
                 startupCard
-            } else if case .crashed = store.state, let line = store.lastOutputLine {
-                crashCard(line)
+            } else if case .crashed(let info) = store.state {
+                // The child died but a splash we didn't start is serving
+                // the port (it hit "address in use"): informational card,
+                // not the red crash card — the server on the port is up.
+                if store.endpointAlive {
+                    externalServerCard(info)
+                } else if store.portOccupiedByOther {
+                    portOccupiedCard(info)
+                } else {
+                    crashCard(info)
+                }
+            }
+            if store.effectiveRunning, let warn = engineWarning {
+                warningCard(warn)
             }
             gauges
-            sectionLabel("SPEED OVER TIME · TOK/S",
-                         help: "Decode speed sampled every \(refreshText) while a request is generating.")
-            Sparkline(values: store.tpsHistory, color: .blue,
-                      window: config.graphSampleWindow)
+            sectionLabel("DECODE SPEED · TOK/S",
+                         help: "The last \(config.graphSampleWindow) tok/s samples, taken every \(refreshText) while a request is generating. Idle time isn't part of the graph; the sample count is set by the graph span and UI refresh in Settings.")
+            Sparkline(values: store.tpsHistory,
+                      color: store.gaugeColor(id: "graph", default: .blue),
+                      window: config.graphSampleWindow,
+                      onOpenColorPanel: { onOpenGaugeColorPanel?("graph") })
                 .frame(height: 88)
-                .help("Decode speed (tok/s) over the last ~\(config.graphMinutes) min of generation, sampled every \(refreshText) (span and UI refresh in Settings). The dotted line is the average of the samples shown.")
-            sectionLabel("LAST REQUEST",
-                         help: "Figures for the most recently finished request, from splash's Done log line.")
-            lastRequest
+                .help("Decode speed (tok/s): the last \(config.graphSampleWindow) samples taken while a request is generating, every \(refreshText) (span and UI refresh in Settings). Samples are evenly spaced by count, not by wall-clock time — idle gaps don't stretch them. The dotted line is the average of the samples shown. Right-click to pick the line's color.")
+            // Log-derived; an adopted (external) server has no log for the
+            // app to parse, and /status carries no per-request record — show
+            // the section only once a request has actually finished.
+            if store.last != nil {
+                sectionLabel("LAST REQUEST",
+                             help: "Figures for the most recently finished request, from splash's Done log line.")
+                lastRequest
+            }
             sectionLabel("LOAD",
                          help: "Server-wide totals and averages since splash started.")
             load
@@ -118,7 +142,7 @@ struct MetricsView: View {
                 .padding(.vertical, 3)
                 .background(Capsule().fill(Color.white.opacity(0.08)))
                 .contentShape(Capsule())
-                .help(thermalHelp(store.thermalState))
+                .help(headerPillHelp)
             }
             Button(action: { onAction(.togglePin) }) {
                 Image(systemName: store.panelPinned ? "pin.fill" : "pin")
@@ -192,20 +216,128 @@ struct MetricsView: View {
         .help("What splash is doing before it can serve: the current stage, download progress (size · speed · time left), time since launch, and its latest output line.")
     }
 
-    private func crashCard(_ line: String) -> some View {
+    private func crashCard(_ info: CrashInfo) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("splash exited")
-                .font(.system(size: 12, weight: .semibold))
-            Text(line)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundColor(.secondary)
-                .lineLimit(4)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                Text("splash exited")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text(info.description)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            ForEach(Array(store.crashLines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.12)))
-        .help("The last line splash printed before it exited; usually the reason it stopped. Select the text to copy it.")
+        .help("splash exited: \(info.description). The lines below are its last output; select the text to copy it. Press Start to run it again.")
+    }
+
+    /// Our child exited while an external splash serves the port.
+    private func externalServerCard(_ info: CrashInfo) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("splash exited")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text(info.description)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            Text("A splash server started outside the app is serving port \(config.port), so the app uses that one. Restart runs splash from the app instead.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(Array(store.crashLines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.08)))
+        .help("The splash this app started exited, but an externally started splash is serving port \(config.port) — the app is using that server. Restart shuts it down and runs splash from the app with the current settings.")
+    }
+
+    /// The child exited because a service that is NOT splash holds the
+    /// port: not a crash to fix, and nothing to adopt.
+    private func portOccupiedCard(_ info: CrashInfo) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("port in use")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text(info.description)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            Text("Something else (not splash) is serving port \(config.port), so the splash the app started exited. Stop that service — or change the port in Settings — then press Start.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(Array(store.crashLines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
+        .help("A service other than splash is listening on port \(config.port) — the splash this app started exited because the port was taken. Stop the other service or change the port in Settings.")
+    }
+
+    /// A warning while the server is up but its inference engine is not:
+    /// the app's child (the Python wrapper) stays alive across engine
+    /// crashes, so without this the flyout would look healthy.
+    private var engineWarning: (title: String, detail: String, color: Color)? {
+        if store.metalHealthy == false {
+            return ("Engine error",
+                    "Metal is reporting a failure; requests may fail or hang until splash is restarted.\(failuresSuffix)",
+                    .red)
+        }
+        if store.engineRecovering {
+            return ("Engine recovering",
+                    "The inference engine crashed and is restarting; requests can't be served until it's back.\(restartsSuffix)",
+                    .orange)
+        }
+        if store.engineRestarts > 0 || store.engineFailures > 0 {
+            return ("Engine unstable",
+                    "The inference engine has crashed and restarted since startup;\(restartsSuffix) if it keeps happening, restart splash.",
+                    .orange)
+        }
+        return nil
+    }
+
+    private var restartsSuffix: String {
+        store.engineRestarts > 0 ? " Restarted \(store.engineRestarts)× since startup." : ""
+    }
+
+    private var failuresSuffix: String {
+        store.engineFailures > 0 ? " \(store.engineFailures) engine failure\(store.engineFailures == 1 ? "" : "s") since startup." : ""
+    }
+
+    private func warningCard(_ warn: (title: String, detail: String, color: Color)) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(warn.title)
+                .font(.system(size: 12, weight: .semibold))
+            Text(warn.detail)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(warn.color.opacity(0.14)))
+        .help(warn.detail)
     }
 
     private var statusHelp: String {
@@ -216,13 +348,13 @@ struct MetricsView: View {
                 : "Green: splash is running."
         }
         switch store.state {
-        case .crashed(let code): return "Red: splash exited unexpectedly (status \(code)). Press Start to run it again."
+        case .crashed(let info): return "Red: splash exited unexpectedly (\(info.description)). Press Start to run it again."
         default: return "Gray: splash is stopped. Press Start to run it."
         }
     }
 
     private var statusColor: Color {
-        if store.state == .starting || store.isStartingUp { return .yellow }
+        if store.isStartingStatus { return .yellow }
         if store.effectiveRunning { return .green }
         switch store.state {
         case .crashed: return .red
@@ -230,33 +362,44 @@ struct MetricsView: View {
         }
     }
 
-    /// Hover text for the thermal pill: what it is and what this level means.
-    private func thermalHelp(_ state: String?) -> String {
-        let temperature = store.chipTemperatureC.map {
-            "Chip temperature: \(TemperatureUnit.format(celsius: $0)), the hottest CPU/GPU die sensor (°F or °C follows Language & Region settings)."
+    /// Hover text for the header pill: thermal state and chip temperature,
+    /// whichever are known.
+    private var headerPillHelp: String {
+        var parts: [String] = []
+        if let s = store.thermalState {
+            parts.append([
+                "Thermal state of this Mac, as reported by macOS through splash.",
+                thermalMeaning(s),
+                "Levels: nominal → fair → serious → critical.",
+            ].joined(separator: "\n"))
         }
-        guard let s = state else {
-            return temperature ?? ""
+        if let c = store.chipTemperatureC {
+            parts.append("Chip temperature: \(TemperatureUnit.format(celsius: c)), the hottest CPU/GPU die sensor (°F or °C follows Language & Region settings).")
         }
-        let meaning: String
+        return parts.joined(separator: "\n")
+    }
+
+    private func thermalMeaning(_ s: String) -> String {
         switch s {
         case "nominal":
-            meaning = "Nominal: normal temperature, no thermal limits."
+            return "Nominal: normal temperature, no thermal limits."
         case "fair":
-            meaning = "Fair: slightly warm. Fans may spin up and macOS may trim background work; speeds are usually unaffected."
+            return "Fair: slightly warm. Fans may spin up and macOS may trim background work; speeds are usually unaffected."
         case "serious":
-            meaning = "Serious: hot. macOS is throttling the CPU and GPU, so tok/s and prefill speed will drop."
+            return "Serious: hot. macOS is throttling the CPU and GPU, so tok/s and prefill speed will drop."
         case "critical":
-            meaning = "Critical: very hot. Heavy throttling until the Mac cools down."
+            return "Critical: very hot. Heavy throttling until the Mac cools down."
         default:
-            meaning = "Current state: \(s)."
+            return "Current state: \(s)."
         }
-        return [
-            "Thermal state of this Mac, as reported by macOS through splash.",
-            meaning,
-            "Levels: nominal → fair → serious → critical.",
-            temperature,
-        ].compactMap { $0 }.joined(separator: "\n")
+    }
+
+    private func pressureColor(_ p: String) -> Color {
+        switch p {
+        case "normal": return .green
+        case "warning": return .yellow
+        default: return .red
+        }
     }
 
     private func thermalColor(_ s: String) -> Color {
@@ -282,50 +425,56 @@ struct MetricsView: View {
         HStack(spacing: 12) {
             RingGauge(
                 value: store.gaugeTokensPerSecond.map { min($0 / 100, 1) },
-                color: .blue,
+                color: store.gaugeColor(id: "tok", default: .blue),
                 center: Fmt.double(store.gaugeTokensPerSecond),
-                detail: tpsAverage.map { "avg \(Fmt.double($0)) t/s" },
+                detail: tpsAverage.map { "avg \(Fmt.double($0))" },
                 caption: "tok/s",
-                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. Full ring = 100 tok/s. Below it: the average of the samples in the speed graph."
+                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. Full ring = 100 tok/s. Below it: the average of the samples in the speed graph. Right-click to pick the ring's color.",
+                onOpenColorPanel: { onOpenGaugeColorPanel?("tok") }
             )
             RingGauge(
                 // While a prompt prefills, the ring fills with its progress.
                 value: store.prefillFraction
                     ?? store.gaugePrefillTokensPerSecond.map { min($0 / 500, 1) },
-                color: .purple,
+                color: store.gaugeColor(id: "prefill", default: .purple),
                 // Prefilling: % done, time left under it. Otherwise: speed.
                 center: store.prefillFraction.map { "\(Int($0 * 100))%" }
                     ?? Fmt.double(store.gaugePrefillTokensPerSecond, 0),
                 detail: store.prefillFraction == nil ? nil
                     : store.prefillETASeconds.map { Fmt.eta($0) },
                 caption: "prefill",
-                help: "While a prompt is prefilling: how much of it is done (the ring fills as it goes) and the estimated time left. Otherwise: prefill speed in tokens per second, from the last prefill or the average since splash started; a full ring = 500 tok/s."
+                help: "While a prompt is prefilling: how much of it is done (the ring fills as it goes) and the estimated time left. Otherwise: prefill speed in tokens per second, from the last prefill or the average since splash started; a full ring = 500 tok/s. Right-click to pick the ring's color.",
+                onOpenColorPanel: { onOpenGaugeColorPanel?("prefill") }
             )
             RingGauge(
                 value: store.gaugeCacheFraction,
-                color: .orange,
+                color: store.gaugeColor(id: "cached", default: .orange),
                 center: Fmt.percent(store.gaugeCacheFraction),
                 caption: "cached",
-                help: "Prompt cache hit rate: share of requests whose prompt prefix was already cached, so less of it had to be prefilled again."
+                help: "KV cache hit rate since the server started: the share of prompt tokens served from the cache instead of being prefilled again (the per-request figure is LAST REQUEST → Input / cached). Right-click to pick the ring's color.",
+                onOpenColorPanel: { onOpenGaugeColorPanel?("cached") }
             )
             HStack(spacing: 6) {
                 BarGauge(
                     value: store.system.gpu,
-                    color: .green,
+                    color: store.gaugeColor(id: "gpu", default: .green),
                     caption: "GPU",
-                    help: "GPU use across the whole Mac: share of time the GPU was busy, as Activity Monitor reports it."
+                    help: "GPU use across the whole Mac: share of time the GPU was busy, as Activity Monitor reports it. Right-click to pick the bar's color.",
+                    onOpenColorPanel: { onOpenGaugeColorPanel?("gpu") }
                 )
                 BarGauge(
                     value: store.system.cpu,
-                    color: .cyan,
+                    color: store.gaugeColor(id: "cpu", default: .cyan),
                     caption: "CPU",
-                    help: "CPU use across the whole Mac: share of all cores' time spent busy since the last refresh."
+                    help: "CPU use across the whole Mac: share of all cores' time spent busy since the last refresh. Right-click to pick the bar's color.",
+                    onOpenColorPanel: { onOpenGaugeColorPanel?("cpu") }
                 )
                 BarGauge(
                     value: store.system.memory,
-                    color: .orange,
-                    caption: "Mem",
-                    help: memoryHelp
+                    color: memBarColor,
+                    caption: "Mac RAM",
+                    help: memoryHelp + " Right-click to pick the bar's color; while the pressure is warning or critical the bar shows that color instead.",
+                    onOpenColorPanel: { onOpenGaugeColorPanel?("mem") }
                 )
             }
         }
@@ -338,7 +487,40 @@ struct MetricsView: View {
         if let used = store.system.memoryUsedBytes, let total = store.system.memoryTotalBytes {
             s += ": \(Fmt.bytes(Int(used))) of \(Fmt.bytes(Int(total)))"
         }
-        return s + "."
+        s += ". The bar's color follows the server's memory-pressure report — "
+        return s + pressureHelp
+    }
+
+    /// Explains the Mem bar's green/yellow/red coloring and the current
+    /// pressure.
+    private var pressureHelp: String {
+        let colors = "green = normal, yellow = warning, red = critical"
+        guard let p = store.memoryPressure else {
+            return "\(colors); the server hasn't reported one yet."
+        }
+        let now: String
+        switch p {
+        case "normal":
+            now = "normal — the Mac has memory to spare"
+        case "warning":
+            now = "warning — the system is under memory load; splash's requests may be slower or suspended"
+        case "critical":
+            now = "critical — macOS is reclaiming memory aggressively; splash may refuse or drop requests until it eases off"
+        default:
+            now = "\(p)"
+        }
+        return "\(colors); right now: \(now)."
+    }
+
+    /// The Mac-RAM bar's color: the user's pick, except while the server's
+    /// memory-pressure report is warning or critical — the warning always
+    /// wins over a decorative choice.
+    private var memBarColor: Color {
+        if let p = store.memoryPressure,
+           p == "warning" || p == "critical" {
+            return pressureColor(p)
+        }
+        return store.gaugeColor(id: "mem", default: .green)
     }
 
     // MARK: - Sections
@@ -348,9 +530,7 @@ struct MetricsView: View {
             row("Output (last)", Fmt.int(store.last?.output) + " tok",
                 help: "Tokens the last request generated.")
             row("Input / cached", "\(Fmt.int(store.last?.input)) / \(Fmt.int(store.last?.cached))",
-                help: "Prompt tokens of the last request / how many of them were reused from the prompt cache instead of being prefilled again.")
-            row("Deduplicated", Fmt.int(store.last?.deduplicated),
-                help: "Prompt tokens beyond the cached prefix whose KV the last request read from blocks another request had already computed.")
+                help: "Prompt tokens of the last request / how many of them were reused from the prompt cache instead of being prefilled again. Of the uncached rest, a further share could still read KV that other requests had already computed — the niche \"deduplicated\" figure, no longer shown as its own row.")
             row("TTFT (last)", Fmt.seconds(store.last?.ttftSeconds),
                 help: "Time to first token of the last request: from arrival until its first output token (mostly prefill).")
             row("Tok/cycle", Fmt.double(store.last?.tokensPerCycle),
@@ -363,29 +543,68 @@ struct MetricsView: View {
             row("Requests", requestsSummary,
                 help: "Requests completed since splash started, plus any cancelled or failed.")
             if let fraction = store.prefillFraction {
-                let eta = store.prefillETASeconds.map { " · \(Fmt.seconds($0)) left" } ?? ""
+                // Same "6m 04s" shape as the ring's detail, not "364.3s".
+                let eta = store.prefillETASeconds.map { " · \(Fmt.eta($0)) left" } ?? ""
                 row("Prefill", "\(Int(fraction * 100))% · \(Fmt.int(store.prefillRemainingTokens)) tok" + eta,
                     help: "Progress of the prompt being processed now: % done · tokens remaining · estimated time left at the current prefill speed.")
             }
+            if store.decodeGeneratedTokens != nil {
+                row("Decode", decodeSummary,
+                    help: "Progress of a request generating now: tokens produced · time spent generating · estimated time left when the request has a max-tokens cap (at the current decode speed).")
+            }
             row("TTFT (p50 / p95)", "\(Fmt.seconds(store.ttftP50)) / \(Fmt.seconds(store.ttftP95))",
                 help: "Time to first token across requests: median / 95th percentile.")
+            if store.itlP50 != nil || store.itlP95 != nil {
+                row("ITL (p50 / p95)", "\(Fmt.ms(store.itlP50)) / \(Fmt.ms(store.itlP95))",
+                    help: "Inter-token latency: the time between consecutive output tokens while generating, across requests (median / 95th percentile). For one stream at a time this is the perceived speed — 1000 ÷ ITL tokens per second — so lower is better.")
+            }
             row("Prefill / decode", "\(Fmt.double(store.prefillTokensPerSecond, 0)) / \(Fmt.double(store.lifetimeTokensPerSecond)) tok/s",
                 help: "Average speeds since splash started: prompt processing (prefill) / generation (decode).")
+            if store.draftedTokens != nil {
+                row("Draft accept", draftSummary,
+                    help: draftHelp)
+            }
             row("Total output", Fmt.int(store.totalOutputTokens) + " tok",
                 help: "Tokens generated across all requests since splash started.")
             row("Active", activeSummary,
-                help: "Requests in flight right now: generating (decode) · processing their prompt (prefill) · waiting their turn (queued).")
-            row("Memory", Fmt.bytes(store.memoryUsedBytes),
-                help: "Memory splash currently holds, as reported by the server (— when it doesn't report it).")
+                help: "Requests in flight right now: generating (decode) · processing their prompt (prefill) · waiting their turn (queued), plus how long the longest-waiting request has waited.")
+            row("splash (server)", memorySummary,
+                help: "Memory the splash server itself currently holds, as it reports it (— when it doesn't), plus its peak since the server started. Different from the Mac RAM bar in the gauges, which is the whole Mac's memory use.")
+            if store.kvAllocatedBytes != nil {
+                row("KV cache", "\(Fmt.bytes(store.kvAllocatedBytes)) · \(Fmt.context(store.kvHitTokens)) tok reused",
+                    help: "KV cache: server memory held for prompt context, and how many prompt tokens were served from it since startup instead of being prefilled again — high reuse is why similar prompts run fast.")
+            }
             if let started = store.serverStartedAt {
                 row("Uptime", Fmt.duration(Date().timeIntervalSince(started)),
                     help: "Time since the server started.")
             }
-            if let w = store.weightsLoadSeconds {
-                row("Weights load", Fmt.seconds(w) + (store.weightsReleased ? " · released" : ""),
-                    help: "How long loading the model weights took at startup. \"released\" means splash freed them after the idle-release timeout; the next request reloads them.")
-            }
         }
+    }
+
+    /// Decode progress of the request generating now: "240 tok · 45s", with
+    /// time-left when the request carries a max-tokens cap.
+    private var decodeSummary: String {
+        var s = Fmt.int(store.decodeGeneratedTokens) + " tok"
+        if let age = store.decodeAgeSeconds { s += " · " + Fmt.duration(age) }
+        if let maxTok = store.decodeMaxTokens, let gen = store.decodeGeneratedTokens,
+           maxTok > gen, let rate = store.liveTokensPerSecond, rate > 0 {
+            s += " · ~\(Fmt.eta(Double(maxTok - gen) / rate)) left"
+        }
+        return s
+    }
+
+    /// "36%" while speculative decoding runs, "off" when the server reports
+    /// no drafted tokens.
+    private var draftSummary: String {
+        guard let d = store.draftedTokens, d > 0 else { return "off" }
+        return Fmt.percent(store.draftAcceptance)
+    }
+
+    private var draftHelp: String {
+        guard let d = store.draftedTokens, d > 0 else {
+            return "Speculative decoding (a draft model proposing tokens ahead) is not in use: the server reports no drafted tokens, so the main model generates every token alone."
+        }
+        return "Speculative decoding: the share of the draft model's proposed tokens the main model accepted (\(d.formatted()) drafted since startup). Higher means the draft pays off; below ~40% it barely helps. LAST REQUEST's Tok/cycle is the same idea per request."
     }
 
     private var requestsSummary: String {
@@ -400,18 +619,183 @@ struct MetricsView: View {
         let p = store.prefillingCount ?? 0
         let q = store.queuedCount ?? 0
         if d == 0 && p == 0 && q == 0 { return "idle" }
-        return "\(d) decode · \(p) prefill · \(q) queued"
+        var s = "\(d) decode · \(p) prefill · \(q) queued"
+        // How long the queue has been backed up (only when there is one).
+        if q > 0 || (store.waitingResources ?? 0) > 0,
+           let ms = store.oldestWaitMs, ms > 0 {
+            s += " · waiting \(Fmt.ms(ms))"
+        }
+        return s
+    }
+
+    /// Server memory as "current · peak"; the peak only when it's above
+    /// the current value, so an idle server reads a single number.
+    private var memorySummary: String {
+        guard let used = store.memoryUsedBytes else { return "—" }
+        if let peak = store.memoryPeakBytes, peak > used {
+            return "\(Fmt.bytes(used)) · peak \(Fmt.bytes(peak))"
+        }
+        return Fmt.bytes(used)
+    }
+
+    /// Load time at startup, plus the current lifecycle: "3.1 s · released"
+    /// or "3.1 s · reloading".
+    private var weightsSummary: String {
+        var s = store.weightsLoadSeconds.map { Fmt.seconds($0) } ?? "—"
+        if store.weightsRestoring {
+            s += " · reloading"
+        } else if store.weightsReleased {
+            s += " · released"
+        }
+        if store.weightsRestores > 0 { s += " · \(store.weightsRestores) restored" }
+        if store.weightsRestoreFailures > 0 { s += " · \(store.weightsRestoreFailures) failed" }
+        return s
+    }
+
+    private var weightsHelp: String {
+        var s = "How long loading the model weights took at startup, plus their lifecycle."
+        if let idle = store.weightsIdleReleaseSeconds {
+            s += " splash releases the weights from memory after \(Int(idle)) s of idleness to give the RAM back,"
+        } else {
+            s += " splash can release the weights from memory after idleness to give the RAM back,"
+        }
+        return s + " so the next request restores them (\"reloading\") and is slower."
     }
 
     private var serverInfo: some View {
         VStack(spacing: 4) {
-            row("Model", store.modelFromStatus ?? store.readyModel ?? config.model, secondary: true,
-                help: "The model splash is serving (Hugging Face repo:variant). Change it in Settings.")
-            row("Context", Fmt.context(store.maxContextTokens ?? parseContext(store.readyContext)),
-                help: "Maximum context window in tokens (prompt + output) for one request.")
-            row("Endpoint", store.readyURL ?? "http://127.0.0.1:\(config.port)", secondary: true,
-                help: "Base URL of the OpenAI-compatible API (add /v1). Open it in a browser for splash's chat page.")
+            modelLink
+            if !store.inputModalities.isEmpty {
+                row("Input", store.inputModalities.joined(separator: " · "),
+                    help: "Input types this server accepts in prompts.")
+            }
+            if store.aneState != nil {
+                row("ANE", aneSummary,
+                    help: "How the model's FFN (feed-forward) layers are split between the Apple Neural Engine (ANE) and the GPU: the percentage is the ANE's share of the work. ane = all on the ANE, split = shared, gpu = none (e.g. --disable-ane).")
+            }
+            if store.diskUsedBytes != nil || store.diskLimitBytes != nil {
+                let d = diskSummary
+                row("SSD cache", d.text, warn: d.warn,
+                    help: diskHelp)
+            }
+            if store.statusAgeMs != nil || store.maxTickMs != nil {
+                let h = healthSummary
+                row("Health", h.text, warn: h.warn,
+                    help: "splash's self-report: how old its own status snapshot is (it refreshes every event-loop tick, so normally ~0), and the longest loop tick since startup. A stale snapshot or a long tick means the server's loop is slow or blocked and requests stall.")
+            }
+            if store.weightsLoadSeconds != nil || store.weightsReleased
+                || store.weightsRestoring || store.weightsRestores > 0
+                || store.weightsRestoreFailures > 0 {
+                row("Weights", weightsSummary,
+                    help: weightsHelp)
+            }
+            endpointLink
         }
+    }
+
+    /// "split · 56%" — how the ANE and GPU share the model's FFN layers.
+    private var aneSummary: String {
+        guard let s = store.aneState else { return "—" }
+        if let share = store.aneShare {
+            return "\(s) · \(Fmt.percent(share))"
+        }
+        return s
+    }
+
+    /// "2.1 / 16 GiB"; " · writes gated" (orange) while splash pauses writes.
+    private var diskSummary: (text: String, warn: Bool) {
+        guard let used = store.diskUsedBytes, let limit = store.diskLimitBytes else {
+            return ("—", false)
+        }
+        var s = "\(Fmt.bytes(used)) / \(Fmt.bytes(limit))"
+        let gated = store.diskWritesGated == true
+        if gated { s += " · writes gated" }
+        return (s, gated)
+    }
+
+    private var diskHelp: String {
+        var s = "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit."
+        if store.diskWritesGated == true {
+            s += " \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached."
+        }
+        return s
+    }
+
+    /// "age 0 ms · tick 99 ms"; orange when the snapshot is stale (>2 s) or
+    /// a loop tick ran long (>1.5 s).
+    private var healthSummary: (text: String, warn: Bool) {
+        let age = store.statusAgeMs
+        let tick = store.maxTickMs
+        let warn = (age.map { $0 > 2000 } ?? false) || (tick.map { $0 > 1500 } ?? false)
+        return ("age \(Fmt.ms(age)) · tick \(Fmt.ms(tick))", warn)
+    }
+
+    /// The Model row as a link: clicking opens the folder in the Hugging
+    /// Face cache where the model's files are stored. Plain (unlinked) row
+    /// when the repo isn't in the cache — nothing to open yet.
+    @ViewBuilder
+    private var modelLink: some View {
+        let id = store.modelFromStatus ?? store.readyModel ?? config.model
+        let url = SplashModels.storageURL(for: id)
+        if let url {
+            HStack(spacing: 6) {
+                Text("Model")
+                    .font(.system(size: 11))
+                Spacer()
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    Text(id)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(.blue)
+                        .underline()
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .buttonStyle(.plain)
+            }
+            .contentShape(Rectangle())
+            .help(modelHelp + " Click to open the folder where its files are stored in Finder.")
+        } else {
+            row("Model", id, secondary: true,
+                help: modelHelp)
+        }
+    }
+
+    /// The Model row's tooltip: what's served, its (static) context window —
+    /// the former Context row — and where to change it.
+    private var modelHelp: String {
+        let context = Fmt.context(store.maxContextTokens
+                                  ?? parseContext(store.readyContext))
+        return "The model splash is serving (Hugging Face repo:variant); context window \(context) tokens (prompt + output for one request). Change it in Settings."
+    }
+
+    /// The Endpoint row as a link: clicking opens splash's chat page in the
+    /// default browser.
+    private var endpointLink: some View {
+        HStack(spacing: 6) {
+            Text("Endpoint")
+                .font(.system(size: 11))
+            Spacer()
+            Button {
+                NSWorkspace.shared.open(endpointURL)
+            } label: {
+                Text(endpointURL.absoluteString)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(.blue)
+                    .underline()
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .buttonStyle(.plain)
+        }
+        .contentShape(Rectangle())
+        .help("Base URL of the OpenAI-compatible API (add /v1). Click to open it in your browser — splash's chat page lives at this address.")
+    }
+
+    private var endpointURL: URL {
+        let s = store.readyURL ?? "http://127.0.0.1:\(config.port)"
+        return URL(string: s) ?? URL(string: "http://127.0.0.1:\(config.port)")!
     }
 
     private func parseContext(_ s: String?) -> Int? {
@@ -422,7 +806,7 @@ struct MetricsView: View {
         return Int(s)
     }
 
-    private func row(_ label: String, _ value: String, secondary: Bool = false, help: String) -> some View {
+    private func row(_ label: String, _ value: String, secondary: Bool = false, warn: Bool = false, help: String) -> some View {
         HStack(spacing: 6) {
             Text(label)
                 .font(.system(size: 11))
@@ -430,7 +814,7 @@ struct MetricsView: View {
             Spacer()
             Text(value)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundColor(.primary)
+                .foregroundColor(warn ? .orange : .primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -574,6 +958,8 @@ struct RingGauge: View {
     var detail: String? = nil
     let caption: String
     var help: String = ""
+    /// Right-click opens the ring's color panel; nil disables the menu.
+    var onOpenColorPanel: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 3) {
@@ -609,6 +995,11 @@ struct RingGauge: View {
         }
         .contentShape(Rectangle())
         .help(help)
+        .contextMenu {
+            if let open = onOpenColorPanel {
+                Button("Color…") { open() }
+            }
+        }
     }
 }
 
@@ -621,6 +1012,8 @@ struct BarGauge: View {
     let color: Color
     let caption: String
     var help: String = ""
+    /// Right-click opens the bar's color panel; nil disables the menu.
+    var onOpenColorPanel: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 3) {
@@ -652,19 +1045,26 @@ struct BarGauge: View {
         }
         .contentShape(Rectangle())
         .help(help)
+        .contextMenu {
+            if let open = onOpenColorPanel {
+                Button("Color…") { open() }
+            }
+        }
     }
 }
 
 // MARK: - Sparkline
 
-/// Line graph of tok/s samples over time, with area fill, gridlines and
-/// min/max labels.
+/// Line graph of tok/s samples, evenly spaced by sample count (idle time
+/// isn't plotted), with area fill, gridlines and an average line.
 struct Sparkline: View {
     let values: [Double]
     var color: Color
     /// How many of the latest samples to plot (the Settings graph span at the
     /// configured refresh interval).
     var window: Int = 90
+    /// Right-click opens the line's color panel; nil disables the menu.
+    var onOpenColorPanel: (() -> Void)? = nil
 
     /// Width reserved left of the plot for the Y-axis labels.
     private let gutter: CGFloat = 26
@@ -745,6 +1145,11 @@ struct Sparkline: View {
         }
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.05)))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+        .contextMenu {
+            if let open = onOpenColorPanel {
+                Button("Color…") { open() }
+            }
+        }
     }
 
     private func points(_ vals: [Double], in plot: CGRect, yFor: (Double) -> CGFloat) -> [CGPoint] {

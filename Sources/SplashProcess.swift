@@ -1,17 +1,57 @@
 import Foundation
+import AppKit
+import SwiftUI
+
+/// The flyout's appearance, from Settings: follow the system, force light,
+/// or force dark.
+enum UITheme: String, Codable, CaseIterable {
+    case system, light, dark
+
+    /// The SwiftUI scheme to force, or nil to follow the system.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .system: return "System (default)"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+}
+
+/// How a dead splash process died: an exit code or a signal (a signal's
+/// number, e.g. 9 for SIGKILL, is what `terminationStatus` holds then).
+struct CrashInfo: Equatable {
+    let code: Int32
+    let bySignal: Bool
+    /// Set when the process never started at all (spawn failed); `code` is
+    /// meaningless then.
+    var note: String? = nil
+
+    var description: String {
+        if let note { return note }
+        return bySignal ? "killed by signal \(code)" : "exited with code \(code)"
+    }
+}
 
 enum SplashState: Equatable {
     case stopped
     case starting
     case running
-    case crashed(Int32)
+    case crashed(CrashInfo)
 
     var label: String {
         switch self {
         case .stopped: return "stopped"
         case .starting: return "starting"
         case .running: return "running"
-        case .crashed(let c): return "crashed (\(c))"
+        case .crashed: return "crashed"
         }
     }
 }
@@ -35,6 +75,32 @@ struct SplashConfig: Codable, Equatable {
     /// App setting, not a splash flag: minutes of generation the tok/s
     /// graph spans.
     var graphMinutes: Int = 5
+    /// App setting, not a splash flag: if splash exits on its own, start it
+    /// again (up to `SplashProcess.maxAutoRestarts` attempts in a row before
+    /// giving up; a manual Start resets the count).
+    var autoRestart: Bool = false
+    /// App setting, not a splash flag: start the app (and with it the
+    /// server) at login, registered via `SMAppService.mainApp`.
+    var launchAtLogin: Bool = false
+    /// App setting, not a splash flag: the flyout is pinned open (it comes
+    /// back pinned across app restarts).
+    var panelPinned: Bool = false
+    /// App setting, not a splash flag: where the pinned flyout sits — its
+    /// top-left corner (x = left edge, y = top edge in screen coordinates) —
+    /// so a restart drops it back where the user dragged it.
+    var pinnedPanelTopLeft: PanelTopLeft? = nil
+    /// App setting, not a splash flag: the flyout's appearance.
+    var theme: UITheme = .system
+    /// App setting, not a splash flag: user-picked colors for the flyout's
+    /// gauges, by gauge id (tok/prefill/cached/gpu/cpu/mem/graph) as
+    /// "#RRGGBB" hex — nil for a gauge = its default color.
+    var gaugeColors: [String: String] = [:]
+
+    /// A persisted top-left screen corner.
+    struct PanelTopLeft: Codable, Equatable {
+        var x: Double
+        var y: Double
+    }
 
     static let refreshIntervalChoices: [Double] = [0.5, 1, 2, 5, 10]
     static let graphMinutesChoices: [Int] = [1, 3, 5, 10, 15, 30]
@@ -73,7 +139,13 @@ struct SplashConfig: Codable, Equatable {
          maxCacheDisk: String? = nil,
          persistentCache: Bool = false,
          refreshInterval: Double = 2,
-         graphMinutes: Int = 5) {
+         graphMinutes: Int = 5,
+         autoRestart: Bool = false,
+         launchAtLogin: Bool = false,
+         panelPinned: Bool = false,
+         pinnedPanelTopLeft: PanelTopLeft? = nil,
+         theme: UITheme = .system,
+         gaugeColors: [String: String] = [:]) {
         self.model = model
         self.port = port
         self.maxMemory = maxMemory
@@ -87,6 +159,12 @@ struct SplashConfig: Codable, Equatable {
         self.persistentCache = persistentCache
         self.refreshInterval = refreshInterval
         self.graphMinutes = graphMinutes
+        self.autoRestart = autoRestart
+        self.launchAtLogin = launchAtLogin
+        self.panelPinned = panelPinned
+        self.pinnedPanelTopLeft = pinnedPanelTopLeft
+        self.theme = theme
+        self.gaugeColors = gaugeColors
     }
 
     /// Tolerates older/minimal config files: every field beyond model and
@@ -108,25 +186,74 @@ struct SplashConfig: Codable, Equatable {
         refreshInterval = min(max(interval, 0.25), 60)
         let minutes = try c.decodeIfPresent(Int.self, forKey: .graphMinutes) ?? 5
         graphMinutes = min(max(minutes, 1), Self.graphMinutesChoices.max()!)
+        autoRestart = try c.decodeIfPresent(Bool.self, forKey: .autoRestart) ?? false
+        launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        panelPinned = try c.decodeIfPresent(Bool.self, forKey: .panelPinned) ?? false
+        pinnedPanelTopLeft = try c.decodeIfPresent(PanelTopLeft.self, forKey: .pinnedPanelTopLeft)
+        theme = (try? c.decodeIfPresent(UITheme.self, forKey: .theme)) ?? .system
+        gaugeColors = try c.decodeIfPresent([String: String].self, forKey: .gaugeColors) ?? [:]
     }
+
+    /// The user-picked color for a gauge, parsed from its stored hex; nil =
+    /// the gauge's default.
+    func gaugeColor(id: String) -> Color? {
+        guard let hex = gaugeColors[id] else { return nil }
+        return Color(hex: hex)
+    }
+
+    /// Overridable in tests; production always uses the home directory.
+    static var configURLOverride: URL?
 
     static var configURL: URL {
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".splashmenubar.json")
+        configURLOverride ?? URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".splashmenubar.json")
     }
 
-    static func load() -> SplashConfig {
-        if let data = try? Data(contentsOf: configURL),
-           let cfg = try? JSONDecoder().decode(SplashConfig.self, from: data) {
-            return cfg
+    /// Loads the saved config. A file that can't be read or parsed is
+    /// moved aside to `~/.splashmenubar.json.bak` (so it can be inspected
+    /// instead of being silently discarded) and `warning` says why the
+    /// defaults are in use — the caller surfaces it.
+    static func load() -> (config: SplashConfig, warning: String?) {
+        guard let data = try? Data(contentsOf: configURL) else {
+            return (.default, nil)   // no file yet: first launch
         }
-        return .default
+        guard let cfg = try? JSONDecoder().decode(SplashConfig.self, from: data) else {
+            quarantineCorruptConfig()
+            return (.default,
+                    "Saved settings could not be read, so the defaults are in use. "
+                    + "The unreadable file was moved to ~/.splashmenubar.json.bak.")
+        }
+        return (cfg, nil)
     }
 
-    func save() {
+    /// Moves an unreadable config out of the way; a newer corrupt file
+    /// replaces an older .bak.
+    private static func quarantineCorruptConfig() {
+        let fm = FileManager.default
+        let bak = configURL.deletingPathExtension().appendingPathExtension("json.bak")
+        try? fm.removeItem(at: bak)
+        try? fm.moveItem(at: configURL, to: bak)
+    }
+
+    /// Writes the config to disk (atomically, so a crash mid-write can't
+    /// corrupt it). `false` with `saveError` set when it couldn't — the
+    /// caller reports that instead of claiming success.
+    @discardableResult
+    mutating func save() -> Bool {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try? encoder.encode(self).write(to: Self.configURL)
+        do {
+            try encoder.encode(self).write(to: Self.configURL, options: .atomic)
+            saveError = nil
+            return true
+        } catch {
+            saveError = error.localizedDescription
+            return false
+        }
     }
+
+    /// The last write failure, when `save()` returned false.
+    private(set) var saveError: String?
 
     /// The full `splash serve` argument list for this configuration.
     var serveArguments: [String] {
@@ -149,6 +276,28 @@ struct SplashConfig: Codable, Equatable {
     }
 }
 
+extension Color {
+    /// Parses "#RRGGBB" (case-insensitive); nil for anything else.
+    init?(hex: String) {
+        var s = hex.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        self = Color(.sRGB,
+                     red: Double((v >> 16) & 0xFF) / 255,
+                     green: Double((v >> 8) & 0xFF) / 255,
+                     blue: Double(v & 0xFF) / 255)
+    }
+
+    /// "#RRGGBB" in sRGB (non-sRGB colors are converted, not rejected).
+    var hexString: String {
+        let c = NSColor(self).usingColorSpace(.sRGB) ?? .white
+        return String(format: "#%02X%02X%02X",
+                      Int((c.redComponent * 255).rounded()),
+                      Int((c.greenComponent * 255).rounded()),
+                      Int((c.blueComponent * 255).rounded()))
+    }
+}
+
 /// Owns the `splash serve` child process and streams its output lines.
 /// Output is read with FileHandle readability handlers (see OutputReader)
 /// and lines are dispatched to the main thread.
@@ -168,15 +317,28 @@ final class SplashProcess {
     /// Set while restart(with:) waits for an external server to exit before
     /// starting ours; Stop clears it so that start never happens.
     private var externalRestartToken: UUID?
+    /// Unexpected exits in a row that auto-restart is covering; a manual
+    /// start resets it.
+    private var autoRestartStreak = 0
+    /// Set while an auto-restart is waiting; Stop or Start clears it so the
+    /// pending start never happens.
+    private var autoRestartToken: UUID?
+    /// True while a crashed server is about to auto-restart (the app uses
+    /// this to stay quiet instead of notifying).
+    var autoRestartScheduled: Bool { autoRestartToken != nil }
+    /// Consecutive unexpected exits auto-restart tolerates before giving up.
+    static let maxAutoRestarts = 3
 
     /// Called on the main thread, once per output line (stdout or stderr).
     var onLine: ((String) -> Void)?
     /// Called on the main thread.
     var onState: ((SplashState) -> Void)?
 
-    func start(_ config: SplashConfig) {
+    func start(_ config: SplashConfig, manual: Bool = true) {
         guard proc == nil else { return }
         externalRestartToken = nil
+        autoRestartToken = nil
+        if manual { autoRestartStreak = 0 }
         lastConfig = config
         intentionalStop = false
         generation += 1
@@ -201,8 +363,26 @@ final class SplashProcess {
                 self.teardown()
                 let restart = self.pendingRestart
                 self.pendingRestart = false
-                self.setState(self.intentionalStop ? .stopped : .crashed(finished.terminationStatus))
-                if restart { self.start(self.lastConfig) }
+                if restart {
+                    // A user-initiated restart: start the new child (with the
+                    // config restart(with:) already stored in lastConfig),
+                    // even though this one was killed on purpose.
+                    self.start(self.lastConfig)
+                    return
+                }
+                if self.intentionalStop {
+                    self.setState(.stopped)
+                    return
+                }
+                // For a process killed by a signal, terminationStatus holds
+                // the signal number (15 = SIGTERM, 9 = SIGKILL), not a code.
+                let info = CrashInfo(code: finished.terminationStatus,
+                                     bySignal: finished.terminationReason == .uncaughtSignal)
+                self.setState(.crashed(info))
+                if self.lastConfig.autoRestart,
+                   self.autoRestartStreak < Self.maxAutoRestarts {
+                    self.maybeScheduleAutoRestart()
+                }
             }
         }
         self.proc = p
@@ -210,7 +390,8 @@ final class SplashProcess {
             try p.run()
         } catch {
             self.proc = nil
-            self.setState(.crashed(-1))
+            self.setState(.crashed(CrashInfo(code: -1, bySignal: false,
+                                             note: "couldn't launch: \(error.localizedDescription)")))
             return
         }
 
@@ -225,11 +406,54 @@ final class SplashProcess {
         setState(.running)
     }
 
+    /// Schedules an auto-restart, first re-checking the port: when a splash
+    /// we didn't start is serving it, the child died with "address in use"
+    /// and spawning would only crash-loop behind the healthy external
+    /// server — the app adopts it instead (the flyout shows the "external"
+    /// chip). The token is held across the probe so a Stop in the meantime
+    /// cancels the restart, as it does for the 2 s delay.
+    private func maybeScheduleAutoRestart() {
+        let token = UUID()
+        autoRestartToken = token
+        Task { @MainActor [weak self] in
+            guard let self, self.autoRestartToken == token,
+                  self.proc == nil, !self.intentionalStop
+            else { return }
+            if await StatusClient.fetch(port: self.lastConfig.port, timeout: 1) != nil {
+                self.autoRestartToken = nil
+                return
+            }
+            self.scheduleAutoRestart(with: token)
+        }
+    }
+
+    /// After an unexpected exit (with auto-restart on), wait briefly and
+    /// start again. Bails if Stop/Start happened in the meantime; gives up
+    /// after `maxAutoRestarts` consecutive crashes — only a manual start
+    /// resets the streak.
+    private func scheduleAutoRestart(with token: UUID) {
+        autoRestartStreak += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, self.autoRestartToken == token,
+                  self.proc == nil, !self.intentionalStop
+            else { return }
+            self.autoRestartToken = nil
+            self.start(self.lastConfig, manual: false)
+        }
+    }
+
     /// Stop the splash server on our port: our child if we have one,
     /// otherwise a splash server started outside the app (UI "Stop"). Also
     /// cancels a restart in progress.
     func stop() {
         pendingRestart = false
+        if autoRestartToken != nil {
+            // A crashed server is about to restart itself; cancel that and
+            // settle into the stopped state.
+            autoRestartToken = nil
+            setState(.stopped)
+            return
+        }
         if externalRestartToken != nil {
             externalRestartToken = nil
             setState(.stopped)

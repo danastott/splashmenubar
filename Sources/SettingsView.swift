@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AppKit
 
 /// Editable form state for the `splash serve` parameters.
 final class SettingsModel: ObservableObject {
@@ -16,6 +17,15 @@ final class SettingsModel: ObservableObject {
     @Published var persistentCache: Bool
     @Published var refreshInterval: Double
     @Published var graphMinutes: Int
+    @Published var autoRestart: Bool
+    @Published var launchAtLogin: Bool
+    @Published var theme: UITheme
+    /// True once "Reset to defaults" was pressed, so a following Save also
+    /// clears the flyout gauge colors (which the form doesn't edit itself).
+    private var didResetToDefaults = false
+    /// Read by the app on Save: after a reset the flyout's live gauge
+    /// colors must not be carried back into the config.
+    var resetToDefaultsApplied: Bool { didResetToDefaults }
     /// True when the Model field is free text instead of a listed model.
     @Published var customModel: Bool
     /// Listed models: the catalog, plus other variants found in the cache
@@ -27,13 +37,56 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var scanned = false
     /// Results of checking typed-in custom ids (nil value = not downloaded).
     @Published private var customSizes: [String: Int64?] = [:]
+    /// The config the form was opened with, so `asConfig` can carry fields
+    /// the form doesn't edit (the flyout's pin state and position) through a
+    /// Save unchanged.
+    let base: SplashConfig
     private var cancellables = Set<AnyCancellable>()
 
     static let customTag = "__custom__"
 
     enum DownloadStatus { case checking, downloaded(Int64), notDownloaded }
 
+    /// Whole-GB RAM of this Mac, to check the selected model against.
+    static let macMemoryGB: Int =
+        Int(ProcessInfo.processInfo.physicalMemory / 1_073_741_824)
+
+    /// The model id as typed, trimmed ("" when empty).
+    var modelID: String {
+        model.trimmingCharacters(in: .whitespaces)
+    }
+    /// Parsed port, nil when the field isn't a number.
+    var portValue: Int? {
+        Int(port.trimmingCharacters(in: .whitespaces))
+    }
+    /// Inline validation shown under the field; nil = valid.
+    var portError: String? {
+        guard let v = portValue else { return "must be a number" }
+        guard (1...65535).contains(v) else { return "must be between 1 and 65535" }
+        return nil
+    }
+    var modelError: String? {
+        modelID.isEmpty ? "is required" : nil
+    }
+    /// False while a field shows an error; Save is disabled then.
+    var isValid: Bool {
+        portError == nil && modelError == nil
+    }
+
+    /// The selected model from the list (nil while Custom is shown).
+    var selectedModel: KnownModel? {
+        modelChoices.first { $0.id == model.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// GB this Mac is short of the selected model's target RAM, if any.
+    var modelMemoryShortfallGB: Int? {
+        guard let m = selectedModel, let need = m.minMemoryGB,
+              need > Self.macMemoryGB else { return nil }
+        return need - Self.macMemoryGB
+    }
+
     init(config: SplashConfig) {
+        base = config
         model = config.model
         customModel = !SplashModels.catalog.contains { $0.id == config.model }
         port = String(config.port)
@@ -48,6 +101,9 @@ final class SettingsModel: ObservableObject {
         persistentCache = config.persistentCache
         refreshInterval = config.refreshInterval
         graphMinutes = config.graphMinutes
+        autoRestart = config.autoRestart
+        launchAtLogin = config.launchAtLogin
+        theme = config.theme
 
         // Scanning the Hugging Face cache walks and resolves every snapshot
         // file, so keep it off the main thread.
@@ -84,9 +140,10 @@ final class SettingsModel: ObservableObject {
 
     var asConfig: SplashConfig {
         var c = SplashConfig.default
-        let m = model.trimmingCharacters(in: .whitespaces)
-        c.model = m.isEmpty ? SplashConfig.default.model : m
-        c.port = Int(port.trimmingCharacters(in: .whitespaces)) ?? SplashConfig.default.port
+        // The UI gates Save on isValid, so the fallbacks below are only
+        // reached if this is called with fields the form wouldn't accept.
+        c.model = modelID.isEmpty ? SplashConfig.default.model : modelID
+        c.port = portValue ?? c.port
         c.maxMemory = Self.blank(maxMemory)
         c.idleRelease = Self.blank(idleRelease)
         c.maxContext = Self.blank(maxContext)
@@ -98,6 +155,17 @@ final class SettingsModel: ObservableObject {
         c.persistentCache = persistentCache
         c.refreshInterval = refreshInterval
         c.graphMinutes = graphMinutes
+        c.autoRestart = autoRestart
+        c.launchAtLogin = launchAtLogin
+        c.theme = theme
+        // The flyout's pin state and position live with the app, not the
+        // form: carrying them through keeps a Save from resetting them.
+        c.panelPinned = base.panelPinned
+        c.pinnedPanelTopLeft = base.pinnedPanelTopLeft
+        // Gauge colors live in the flyout (right-click), not the form: a
+        // Save carries the current picks through — or clears them after
+        // "Reset to defaults".
+        c.gaugeColors = didResetToDefaults ? [:] : base.gaugeColors
         return c
     }
 
@@ -112,6 +180,30 @@ final class SettingsModel: ObservableObject {
         }
         if customModel || !scanned { return .checking }
         return .notDownloaded
+    }
+
+    /// Restores every field to its default, as `SplashConfig.default`
+    /// defines it (blank = splash's own default for that flag).
+    func resetToDefaults() {
+        let d = SplashConfig.default
+        model = d.model
+        customModel = !SplashModels.catalog.contains { $0.id == d.model }
+        port = String(d.port)
+        maxMemory = ""
+        idleRelease = ""
+        maxContext = ""
+        maxCacheDisk = ""
+        languageOnly = d.languageOnly
+        kvFormat = d.kvFormat ?? "int8"
+        stateFormat = d.stateFormat ?? "fp32"
+        disableANE = d.disableANE
+        persistentCache = d.persistentCache
+        refreshInterval = d.refreshInterval
+        graphMinutes = d.graphMinutes
+        autoRestart = d.autoRestart
+        launchAtLogin = d.launchAtLogin
+        theme = d.theme
+        didResetToDefaults = true
     }
 
     private static func blank(_ s: String) -> String? {
@@ -135,9 +227,16 @@ struct SettingsView: View {
                     modelPicker
                 }
                 field("Port", help: "--port: HTTP port the server listens on (127.0.0.1).") {
-                    TextField("8081", text: $settings.port)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 90)
+                    VStack(alignment: .leading, spacing: 2) {
+                        TextField("8081", text: $settings.port)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 90)
+                        if let err = settings.portError {
+                            Text("Port \(err)")
+                                .font(.system(size: 10))
+                                .foregroundColor(.orange)
+                        }
+                    }
                 }
                 field("Max memory", help: "--max-memory: Metal memory budget, e.g. 28G. It can only lower the automatic budget. Blank = auto.") {
                     TextField("auto (e.g. 28G)", text: $settings.maxMemory)
@@ -199,21 +298,42 @@ struct SettingsView: View {
                 }
                 .frame(width: 160)
             }
+            field("Auto-restart", help: "If splash exits on its own, start it again after a moment — up to \(SplashProcess.maxAutoRestarts) times in a row before giving up. Pressing Start resets the count; a Stop always wins over it. A crash also gets a notification unless it is being auto-restarted.") {
+                Toggle("", isOn: $settings.autoRestart)
+                    .frame(width: 160)
+            }
+            field("Launch at login", help: "Start Splash Menu Bar when you log in, so the splash server runs without opening the app. Registered as a system login item (System Settings → General → Login Items); changing it does not restart the server.") {
+                Toggle("", isOn: $settings.launchAtLogin)
+                    .frame(width: 160)
+            }
+            field("Appearance", help: "The flyout's (and this window's) color theme: follow the system's dark/light mode, or force one. The preview here updates as you pick; the flyout takes it on Save. Changing only this does not restart the server.") {
+                Picker("", selection: $settings.theme) {
+                    ForEach(UITheme.allCases, id: \.self) { t in
+                        Text(t.label).tag(t)
+                    }
+                }
+                .frame(width: 160)
+            }
+            Text("Changing a splash option restarts the server.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             HStack {
-                Text("Changing a splash option restarts the server.")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                Button("Reset to defaults", action: { settings.resetToDefaults() })
+                    .help("Set every option to its default. Nothing is saved or restarted until you press Save.")
                 Spacer()
                 Button("Cancel", action: onDismiss)
                     .help("Close without saving.")
                 Button("Save", action: { onSave(settings.asConfig) })
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
+                    .disabled(!settings.isValid)
                     .help("Save these options to ~/.splashmenubar.json and restart splash with them.")
             }
         }
         .padding(16)
         .frame(width: 440)
+        .preferredColorScheme(settings.theme.colorScheme)
     }
 
     // MARK: - Model picker
@@ -245,7 +365,10 @@ struct SettingsView: View {
                 }
                 if !available.isEmpty {
                     Section("Not downloaded") {
-                        ForEach(available) { m in Text(m.label).tag(m.id) }
+                        ForEach(available) { m in
+                            Text(m.label + (m.downloadGB.map { " · \($0) GB download" } ?? ""))
+                                .tag(m.id)
+                        }
                     }
                 }
                 Divider()
@@ -255,8 +378,25 @@ struct SettingsView: View {
             if settings.customModel {
                 TextField("OWNER/REPO[:VARIANT]", text: $settings.model)
                     .textFieldStyle(.roundedBorder)
+                if let err = settings.modelError {
+                    Text("Model \(err)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                }
             }
             modelStatus
+            if let need = settings.selectedModel?.minMemoryGB,
+               let shortfall = settings.modelMemoryShortfallGB {
+                Label("Needs about \(need) GB of RAM — this Mac has \(SettingsModel.macMemoryGB) GB, so this model will likely not run here",
+                      systemImage: "exclamationmark.triangle")
+                    .foregroundColor(.orange)
+                    .font(.system(size: 10))
+            }
+            if !settings.customModel, let about = settings.selectedModel?.about {
+                Text(about)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
@@ -264,9 +404,27 @@ struct SettingsView: View {
     private var modelStatus: some View {
         switch settings.currentStatus {
         case .downloaded(let size):
-            Label("Downloaded · \(Fmt.bytes(Int(size))) on disk", systemImage: "checkmark.circle.fill")
-                .foregroundColor(.green)
-                .font(.system(size: 10))
+            let text = "Downloaded · \(Fmt.bytes(Int(size))) on disk"
+            if let url = SplashModels.storageURL(for: settings.modelID) {
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text(text)
+                            .foregroundColor(.blue)
+                            .underline()
+                    }
+                    .font(.system(size: 10))
+                }
+                .buttonStyle(.plain)
+                .help("Open in Finder the folder where this model is stored (the Hugging Face cache).")
+            } else {
+                Label(text, systemImage: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.system(size: 10))
+            }
         case .notDownloaded:
             Label("Not downloaded · the first start downloads it", systemImage: "arrow.down.circle")
                 .foregroundColor(.secondary)

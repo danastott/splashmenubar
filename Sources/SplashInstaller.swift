@@ -37,9 +37,17 @@ final class InstallModel: ObservableObject {
 
     @Published var phase: Phase = .running
     @Published var output: String = ""
+    /// True once `brew install` has been silent for a while — no error,
+    /// just no output (a stalled network, or an Xcode license prompt brew
+    /// can't show). The view shows a hint; the run keeps going.
+    @Published var stalled = false
 
     private var proc: Process?
     private var cancelled = false
+    private var lastOutputAt = Date()
+    private var stallTimer: Timer?
+    /// How long without output counts as a stall.
+    private let stallAfter: TimeInterval = 5 * 60
 
     /// Runs `brew install` with stdin closed so it can never block on a prompt.
     func start(brew: String) {
@@ -64,11 +72,16 @@ final class InstallModel: ObservableObject {
                 return
             }
             let text = String(decoding: data, as: UTF8.self)
-            DispatchQueue.main.async { self?.output += text }
+            DispatchQueue.main.async {
+                self?.output += text
+                self?.lastOutputAt = Date()
+                self?.stalled = false
+            }
         }
         p.terminationHandler = { [weak self] finished in
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.stopStallTimer()
                 self.proc = nil
                 if self.cancelled {
                     self.phase = .failed("Installation cancelled.")
@@ -84,9 +97,12 @@ final class InstallModel: ObservableObject {
 
         output = "$ \(SplashInstaller.installCommand)\n"
         phase = .running
+        stalled = false
+        lastOutputAt = Date()
         proc = p
         do {
             try p.run()
+            startStallTimer()
         } catch {
             proc = nil
             phase = .failed("Couldn't launch Homebrew: \(error.localizedDescription)")
@@ -97,6 +113,24 @@ final class InstallModel: ObservableObject {
         guard let p = proc, p.isRunning else { return }
         cancelled = true
         p.terminate()
+    }
+
+    /// While the install runs, note it when brew has printed nothing for a
+    /// long time — the usual causes are a stalled network or an Xcode
+    /// license brew can't prompt for non-interactively.
+    private func startStallTimer() {
+        stopStallTimer()
+        stallTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            guard let self, self.phase == .running else { return }
+            if Date().timeIntervalSince(self.lastOutputAt) >= self.stallAfter {
+                self.stalled = true
+            }
+        }
+    }
+
+    private func stopStallTimer() {
+        stallTimer?.invalidate()
+        stallTimer = nil
     }
 }
 
@@ -118,6 +152,14 @@ struct InstallView: View {
                     Image(systemName: "xmark.octagon.fill").foregroundColor(.red)
                     Text(reason).font(.headline)
                 }
+            }
+
+            if model.stalled {
+                Text("No output for 5 minutes — brew may be waiting on the network, or on an Xcode license it can't ask for (run `sudo xcodebuild -license accept` in Terminal). The install keeps running; Cancel if it never finishes.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
             }
 
             ScrollViewReader { reader in

@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 import Combine
+import UserNotifications
+import ServiceManagement
 
 /// Borderless, non-activating panel used for the metrics flyout.
 final class MetricsPanel: NSPanel {
@@ -9,6 +11,18 @@ final class MetricsPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
+    }
+}
+
+/// The status item's text and how its "●" is colored: yellow while splash is
+/// starting, green once it runs — the same states and colors as the flyout's
+/// status dot.
+private struct MenuBarStatus: Equatable {
+    let title: String
+    let startingUp: Bool
+    init(_ title: String, startingUp: Bool = false) {
+        self.title = title
+        self.startingUp = startingUp
     }
 }
 
@@ -34,7 +48,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let systemMonitor = SystemMonitor()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        config = SplashConfig.load()
+        let loaded = SplashConfig.load()
+        config = loaded.config
+        store.gaugeColors = config.gaugeColors
+        if let warning = loaded.warning {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn't read saved settings"
+            alert.informativeText = warning
+            alert.addButton(withTitle: "OK")
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -51,7 +78,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.store.handle(line: line)
         }
         proc.onState = { [weak self] s in
-            self?.store.state = s
+            guard let self else { return }
+            // A dead server is worth a notification — unless it is being
+            // auto-restarted, where the flyout and menu bar already say so.
+            if case .crashed(let info) = s, !self.proc.autoRestartScheduled {
+                self.postCrashNotificationIfNeeded(info)
+            }
+            self.store.state = s
         }
 
         Publishers.CombineLatest(
@@ -62,12 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.$startupFraction, store.$readyModel, store.$endpointReady, store.$prefillFraction
             )
         )
-            .map { first, startup -> String in
+            .map { first, startup -> MenuBarStatus in
                 let (state, live, _, endpointAlive) = first
                 let (fraction, readyModel, endpointReady, prefill) = startup
-                // Same as store.isStartingUp, from the emitted (new) values:
-                // @Published fires before the property is stored.
-                let startingUp = readyModel == nil && !endpointReady
+                // Same as store.isStartingStatus, from the emitted (new)
+                // values: @Published fires before the property is stored.
+                let startingUp = state == .starting || (readyModel == nil && !endpointReady)
                 // Speed only while decoding; idle shows the green dot rather
                 // than the last request's (stale) speed.
                 let tps = live
@@ -79,28 +112,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case .running, .starting:
                     if startingUp {
                         // Downloading / loading: show how far along it is.
-                        if let fraction { return String(format: " ⏳ %d%%", Int(fraction * 100)) }
-                        return " ⏳"
+                        if let fraction {
+                            return MenuBarStatus(String(format: " ● %d%%", Int(fraction * 100)), startingUp: true)
+                        }
+                        return MenuBarStatus(" ●", startingUp: true)
                     }
-                    if let prefillTitle { return prefillTitle }
-                    if let tps { return String(format: " %.1f t/s", tps) }
+                    if let prefillTitle { return MenuBarStatus(prefillTitle) }
+                    if let tps { return MenuBarStatus(String(format: " %.1f t/s", tps)) }
                     // Serving and idle.
-                    return " ●"
+                    return MenuBarStatus(" ●")
                 case .stopped, .crashed:
                     // A server is answering /status even though it is not our
                     // child (started externally or left over): show its activity.
                     if endpointAlive {
-                        if let prefillTitle { return prefillTitle }
-                        if let tps { return String(format: " %.1f t/s", tps) }
-                        return endpointReady ? " ●" : " ⏳"
+                        if let prefillTitle { return MenuBarStatus(prefillTitle) }
+                        if let tps { return MenuBarStatus(String(format: " %.1f t/s", tps)) }
+                        // The flyout calls any running server green, ready or not.
+                        return MenuBarStatus(" ●")
                     }
-                    if case .crashed = state { return " ✕" }
-                    return ""
+                    if case .crashed = state { return MenuBarStatus(" ✕") }
+                    return MenuBarStatus("")
                 }
             }
             .removeDuplicates()
-            .sink { [weak self] title in
-                self?.setStatusTitle(title)
+            .sink { [weak self] status in
+                self?.setStatusTitle(status.title, startingUp: status.startingUp)
             }
             .store(in: &cancellables)
 
@@ -137,39 +173,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
 
         startPolling()
+        setupNotifications()
+        watchNotificationTriggers()
 
         // Requirement: launching the menu bar app starts splash — once the
         // CLI is installed; otherwise offer to install it first.
         startServer()
 
-        // Debug hook: SPLASHMB_AUTOSHOW=panel|settings opens the flyout or
-        // settings window shortly after launch.
+        // A pinned flyout comes back pinned, where the user left it.
+        if config.panelPinned {
+            store.panelPinned = true
+            DispatchQueue.main.async { [weak self] in self?.restorePinnedPanel() }
+        }
+
+        // Keep the system's login item in step with the saved preference
+        // (it drifts if the user toggles it in System Settings).
+        _ = syncLaunchAtLogin(config.launchAtLogin)
+
+        // While pinned and dragged, remember where the flyout sits.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, self.store.panelPinned,
+                  let w = note.object as? NSWindow, w === self.panel else { return }
+            self.persistPanelState()
+        }
+
+        // Debug hook: SPLASHMB_AUTOSHOW=panel|settings|both opens the flyout,
+        // the settings window (or both) shortly after launch.
         if let mode = ProcessInfo.processInfo.environment["SPLASHMB_AUTOSHOW"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
                 guard let self else { return }
                 if mode == "settings" { self.openSettings() } else { self.togglePanel() }
+                if mode == "both" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                        self?.openSettings()
+                    }
+                }
+            }
+        }
+
+        // Debug hook: SPLASHMB_COLOR_PANEL=<gauge id> opens that gauge's
+        // color panel shortly after launch.
+        if let id = ProcessInfo.processInfo.environment["SPLASHMB_COLOR_PANEL"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                self?.openGaugeColorPanel(id: id)
+            }
+        }
+
+        // Debug hook: SPLASHMB_COLOR_SIMULATE=<gauge id>:#RRGGBB plays back
+        // one panel edit through the same path a user pick takes.
+        if let spec = ProcessInfo.processInfo.environment["SPLASHMB_COLOR_SIMULATE"],
+           let sep = spec.firstIndex(of: ":") {
+            let id = String(spec[..<sep])
+            let hex = String(spec[spec.index(after: sep)...])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 7) { [weak self] in
+                guard let self, let color = Color(hex: hex) else { return }
+                self.gaugeColorPanel.bind(id: id)
+                self.gaugeColorPanel.handleColor(NSColor(color))
             }
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        persistPanelState()
         // Quitting the app stops our child and its engine (waiting briefly so
         // nothing is orphaned) but leaves an externally started server alone.
         proc.stopChildBeforeQuit()
     }
 
-    /// Sets the status item text; a "●" (ready, idle) is drawn green.
-    private func setStatusTitle(_ title: String) {
+    /// Sets the status item text; a "●" is drawn yellow while starting and
+    /// green when serving — the flyout's status dot colors.
+    private func setStatusTitle(_ title: String, startingUp: Bool) {
         guard let button = statusItem?.button else { return }
         let font = NSFont.menuBarFont(ofSize: 0)
         let attributed = NSMutableAttributedString(string: title, attributes: [.font: font])
+        let dotColor = startingUp ? NSColor.systemYellow : NSColor.systemGreen
         let ns = title as NSString
         var search = NSRange(location: 0, length: ns.length)
         while true {
             let r = ns.range(of: "●", options: [], range: search)
             if r.location == NSNotFound { break }
             attributed.addAttributes([
-                .foregroundColor: NSColor.systemGreen,
+                .foregroundColor: dotColor,
                 // The glyph sits high in the menu bar font; shrink and center it.
                 .font: NSFont.menuBarFont(ofSize: font.pointSize * 0.75),
                 .baselineOffset: font.pointSize * 0.08,
@@ -209,12 +295,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Measure the unclipped content first.
         let handler: (MenuAction) -> Void = { [weak self] in self?.handleAction($0) }
-        let plain = NSHostingView(rootView: MetricsView(store: store, config: config, onAction: handler))
+        let colorPanelHandler: (String) -> Void = { [weak self] id in
+            self?.openGaugeColorPanel(id: id)
+        }
+        let plain = NSHostingView(rootView: MetricsView(
+            store: store, config: config, onAction: handler,
+            onOpenGaugeColorPanel: colorPanelHandler))
         let fitting = plain.fittingSize
         let maxH = visible.height - 8
         let hosting: NSHostingView<MetricsView>
         if fitting.height > maxH {
-            hosting = NSHostingView(rootView: MetricsView(store: store, config: config, maxHeight: maxH, onAction: handler))
+            hosting = NSHostingView(rootView: MetricsView(
+                store: store, config: config, maxHeight: maxH,
+                onAction: handler, onOpenGaugeColorPanel: colorPanelHandler))
         } else {
             hosting = plain
         }
@@ -329,6 +422,184 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         globalMonitor = nil
     }
 
+    // MARK: - Notifications
+
+    private static let startActionID = "splash.start"
+    private static let crashCategoryID = "splash.crash"
+
+    /// Crash notifications carry a "Start splash" action; requesting
+    /// authorization once at launch surfaces the system prompt.
+    private func setupNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        let start = UNNotificationAction(identifier: Self.startActionID,
+                                         title: "Start splash", options: [])
+        center.setNotificationCategories([
+            UNNotificationCategory(identifier: Self.crashCategoryID,
+                                   actions: [start], intentIdentifiers: [])
+        ])
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    /// Posts the crash notification unless a splash we didn't start is
+    /// serving the port: then the child died with "address in use" behind a
+    /// healthy external server and there is no outage to announce. The port
+    /// is re-probed rather than trusting `store.endpointAlive`, which can
+    /// still reflect our own child from the last poll.
+    private func postCrashNotificationIfNeeded(_ info: CrashInfo) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            switch await StatusClient.probe(port: self.config.port, timeout: 1) {
+            case .splash:
+                return   // healthy external server: no outage to announce
+            case .other:
+                // A non-splash service holds the port: the flyout's "port in
+                // use" card explains; "the server is stopped" would lie.
+                self.store.portOccupiedByOther = true
+                return
+            case .nothing:
+                break
+            }
+            self.postCrashNotification(info)
+        }
+    }
+
+    private func postCrashNotification(_ info: CrashInfo) {
+        let content = UNMutableNotificationContent()
+        content.title = "splash exited"
+        content.body = "\(info.description) — the server is stopped."
+        content.sound = .default
+        content.categoryIdentifier = Self.crashCategoryID
+        let request = UNNotificationRequest(identifier: Self.crashCategoryID,
+                                            content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// Posts a plain banner (no actions), like the crash one.
+    private func postNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: title, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// The flyout isn't always in view: these states post a banner.
+    private func watchNotificationTriggers() {
+        // The model finished downloading: splash announces a fetch during
+        // startup and later reports Ready; only then is it worth a ping.
+        store.$readyModel
+            .dropFirst()
+            .filter { $0 != nil }
+            .sink { [weak self] model in
+                guard let self else { return }
+                guard self.store.modelDownloadedThisStartup else { return }
+                self.store.modelDownloadedThisStartup = false
+                self.postNotification(title: "Model ready",
+                                      body: "\(model ?? "the model") finished downloading, is loaded and serving.")
+            }
+            .store(in: &cancellables)
+
+        // Thermal state crossed into the hot states (nominal/fair stay quiet).
+        store.$thermalState
+            .removeDuplicates()
+            .sink { [weak self] state in
+                guard let self, let state else { return }
+                switch state {
+                case "serious":
+                    self.postNotification(title: "Thermal: serious",
+                                          body: "The Mac is running hot (thermal state \"serious\"): the CPU and GPU are being throttled, so generation slows down.")
+                case "critical":
+                    self.postNotification(title: "Thermal: critical",
+                                          body: "The Mac is overheating (thermal state \"critical\"): heavy throttling until it cools down.")
+                default:
+                    break
+                }
+            }
+            .store(in: &cancellables)
+
+        // The weights were released from memory after idleness.
+        store.$weightsReleased
+            .removeDuplicates()
+            .sink { [weak self] released in
+                guard let self, released else { return }
+                self.postNotification(title: "splash released the model",
+                                      body: "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower.")
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Pinned flyout
+
+    /// Persists the flyout's pin state and, while pinned, its top-left
+    /// corner (the frame's minX/maxY — AppKit's origin is bottom-left), so a
+    /// restart drops the flyout back where it was.
+    private func persistPanelState() {
+        config.panelPinned = store.panelPinned
+        if store.panelPinned, let p = panel {
+            config.pinnedPanelTopLeft = SplashConfig.PanelTopLeft(
+                x: Double(p.frame.minX), y: Double(p.frame.maxY))
+        } else {
+            config.pinnedPanelTopLeft = nil
+        }
+        config.save()
+    }
+
+    /// Re-opens a previously pinned flyout, at its saved corner when that
+    /// corner is still on a screen (a monitor may have gone away).
+    private func restorePinnedPanel() {
+        guard let button = statusItem.button, let win = button.window,
+              !panelVisible else { return }
+        var topLeft = config.pinnedPanelTopLeft.map { NSPoint(x: $0.x, y: $0.y) }
+        if let tl = topLeft,
+           !NSScreen.screens.contains(where: { $0.frame.contains(tl) }) {
+            topLeft = nil
+        }
+        showPanel(anchor: button, anchorWindow: win, keepingTopLeft: topLeft)
+    }
+
+    // MARK: - Gauge colors
+
+    /// A gauge color pick from the color panel: flyout and in-memory config
+    /// update live; the file write is coalesced by GaugeColorPanel.
+    private func applyGaugeColor(id: String, color: Color) {
+        let hex = color.hexString
+        store.gaugeColors[id] = hex
+        config.gaugeColors[id] = hex
+    }
+
+    /// The shared system color panel for gauge picks.
+    private lazy var gaugeColorPanel = GaugeColorPanel(
+        onLive: { [weak self] id, color in
+            self?.applyGaugeColor(id: id, color: color)
+        },
+        onCommit: { [weak self] in
+            _ = self?.config.save()
+        })
+
+    private func openGaugeColorPanel(id: String) {
+        gaugeColorPanel.open(for: id, current: store.currentGaugeColor(id: id))
+    }
+
+    // MARK: - Login item
+
+    /// Registers or unregisters the app as a login item so the system's
+    /// state matches `enabled`; the error if the change failed.
+    private func syncLaunchAtLogin(_ enabled: Bool) -> Error? {
+        let service = SMAppService.mainApp
+        do {
+            if enabled {
+                if service.status != .enabled { try service.register() }
+            } else if service.status == .enabled {
+                try service.unregister()
+            }
+            return nil
+        } catch {
+            return error
+        }
+    }
+
     // MARK: - Polling
 
     private func startPolling() {
@@ -380,6 +651,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openSettings()
         case .togglePin:
             store.panelPinned.toggle()
+            persistPanelState()
             guard let p = panel else { return }
             // Pinned, it floats below alerts and dialogs instead of over them,
             // and can be dragged anywhere.
@@ -418,11 +690,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - splash installation
 
     /// Starts `splash serve`, or asks the user to install `splash` first.
+    /// When a splash already serving the configured port (started outside
+    /// the app) answers the probe, it is adopted: spawning a child would
+    /// just die with "address in use".
     private func startServer() {
-        if SplashInstaller.isSplashInstalled {
-            proc.start(config)
-        } else {
+        guard SplashInstaller.isSplashInstalled else {
             promptInstall()
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            switch await StatusClient.probe(port: self.config.port, timeout: 1.5) {
+            case .splash:
+                return   // external splash on the port: the poll loop picks it up
+            case .other:
+                // Something that isn't splash holds the port: spawning a
+                // child would just die with "address in use" — say so.
+                self.store.portOccupiedByOther = true
+                self.store.state = .crashed(CrashInfo(
+                    code: 0, bySignal: false, note: "port in use"))
+            case .nothing:
+                self.proc.start(self.config)
+            }
         }
     }
 
@@ -507,16 +796,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             w.makeKeyAndOrderFront(nil)
             return
         }
+        let settings = SettingsModel(config: config)
         let view = SettingsView(
-            settings: SettingsModel(config: config),
-            onSave: { [weak self] new in
+            settings: settings,
+            onSave: { [weak self] saved in
                 guard let self else { return }
+                var new = saved
+                // The login item is synced with the system before saving, so
+                // a failed change is never persisted as the preference.
+                if new.launchAtLogin != self.config.launchAtLogin,
+                   let error = self.syncLaunchAtLogin(new.launchAtLogin) {
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = "Couldn't \(new.launchAtLogin ? "enable" : "turn off") launch at login"
+                    alert.informativeText = error.localizedDescription
+                    NSApp.activate(ignoringOtherApps: true)
+                    alert.runModal()
+                    return   // the settings window stays open
+                }
+                // The flyout's live pin state and position win over the
+                // form's copy (the panel may have been moved while open),
+                // and its gauge colors win over the form's (a right-click
+                // pick may have happened while the form was open) — unless
+                // "Reset to defaults" cleared them.
+                new.panelPinned = self.config.panelPinned
+                new.pinnedPanelTopLeft = self.config.pinnedPanelTopLeft
+                if !settings.resetToDefaultsApplied {
+                    new.gaugeColors = self.store.gaugeColors
+                }
                 if new != self.config {
                     // Only splash options restart the server; the refresh
                     // interval is the app's own and applies on the next poll.
                     let serverChanged = new.serveArguments != self.config.serveArguments
                     self.config = new
-                    new.save()
+                    if !new.save() {
+                        let alert = NSAlert()
+                        alert.alertStyle = .warning
+                        alert.messageText = "Couldn't save settings"
+                        alert.informativeText = "The changes apply for this session, but the config file couldn't be written: "
+                            + (new.saveError ?? "unknown error")
+                            + ". They'll be lost when the app quits."
+                        alert.addButton(withTitle: "OK")
+                        NSApp.activate(ignoringOtherApps: true)
+                        alert.runModal()
+                    }
                     if serverChanged {
                         self.store.resetForRestart()
                         self.proc.restart(with: new)
@@ -579,5 +902,25 @@ extension AppDelegate: NSWindowDelegate {
         guard w === settingsWindow else { return }
         settingsWindow = nil
         reopenPanel()
+    }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    /// An accessory app never "activates"; present the banner and sound
+    /// anyway so a crash is seen even with the flyout closed.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler:
+                                @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler:
+                                @escaping () -> Void) {
+        defer { completionHandler() }
+        guard response.actionIdentifier == Self.startActionID else { return }
+        startServer()
     }
 }

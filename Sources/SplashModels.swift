@@ -4,16 +4,35 @@ import Foundation
 struct KnownModel: Hashable, Identifiable {
     /// `OWNER/REPO[:VARIANT]`.
     let id: String
-    /// Short menu label, e.g. "Qwen3.8 27B · GGUF UD-Q4_K_M".
+    /// Short menu label, e.g. "Qwen3.8-27B · GGUF UD-Q4_K_M".
     let label: String
+    /// Smallest Mac memory in GB the variant is meant for (splash's
+    /// suggested-models.tsv), if known.
+    var minMemoryGB: Int? = nil
+    /// Download size in GB: the model, its draft, and its vision projector.
+    var downloadGB: Int? = nil
+    /// Few words for choosing among the models; shared by a model's variants.
+    var about: String? = nil
 }
 
 /// The supported model families from splash's README, plus what's already in
 /// the Hugging Face cache, which is where splash downloads models.
 enum SplashModels {
+    /// The models to offer, best first. Read from `suggested-models.tsv`
+    /// shipped with the installed splash (splash's own desktop app does the
+    /// same), so the list tracks splash's releases; the hardcoded table
+    /// below is the fallback when splash isn't installed or the file is
+    /// missing.
+    static var catalog: [KnownModel] {
+        tsvCatalog ?? fallbackCatalog
+    }
+
+    /// Parsed TSV, read once (nil if the file can't be read or is empty).
+    private static let tsvCatalog: [KnownModel]? = loadTsvCatalog()
+
     /// One recommended GGUF / MLX build per supported family
-    /// (https://github.com/incoai/splash#models).
-    static let catalog: [KnownModel] = [
+    /// (https://github.com/incoai/splash#models), as of splash 1.5.
+    static let fallbackCatalog: [KnownModel] = [
         .init(id: "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M", label: "Qwen3.8 27B · GGUF UD-Q4_K_M"),
         .init(id: "mlx-community/Qwen3.8-27B-4bit", label: "Qwen3.8 27B · MLX 4-bit"),
         .init(id: "unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M", label: "Qwen3.6 35B-A3B · GGUF UD-Q4_K_M"),
@@ -24,6 +43,62 @@ enum SplashModels {
         .init(id: "unsloth/flint-GGUF:UD-Q4_K_XL", label: "Flint · GGUF UD-Q4_K_XL"),
         .init(id: "prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0", label: "Ternary Bonsai 2 27B · GGUF PQ2_0"),
     ]
+
+    private static func loadTsvCatalog() -> [KnownModel]? {
+        guard let url = suggestedModelsURL(),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let models = parseSuggestedModels(text)
+        return models.isEmpty ? nil : models
+    }
+
+    /// `suggested-models.tsv` ships inside the splash install, next to its
+    /// launcher (`<install>/install/suggested-models.tsv`); nil when splash
+    /// isn't on the PATH or the file is missing (e.g. a pip install).
+    static func suggestedModelsURL() -> URL? {
+        guard let splash = SplashInstaller.locate("splash") else { return nil }
+        let fm = FileManager.default
+        let raw = URL(fileURLWithPath: splash)
+        let resolved = raw.resolvingSymlinksInPath()
+        var candidates: [URL] = []
+        // Homebrew: <root>/bin/splash → <root>/opt/splash/libexec/install/.
+        let rawRoot = raw.deletingLastPathComponent().deletingLastPathComponent()
+        candidates.append(rawRoot.appendingPathComponent(
+            "opt/splash/libexec/install/suggested-models.tsv"))
+        // <prefix>/bin/splash → <prefix>/libexec/install/: a Homebrew Cellar
+        // version dir, or any prefix with bin/ and libexec/ as siblings.
+        let prefix = resolved.deletingLastPathComponent().deletingLastPathComponent()
+        candidates.append(prefix.appendingPathComponent(
+            "libexec/install/suggested-models.tsv"))
+        return candidates.first { fm.fileExists(atPath: $0.path) }
+    }
+
+    /// Parses `suggested-models.tsv` lines:
+    /// `MODEL<TAB>NAME<TAB>MEMORY<TAB>SIZE<TAB>ABOUT`, where MEMORY is the
+    /// smallest Mac RAM in GB the variant is meant for and SIZE the download
+    /// in whole GB. `#` comment lines and rows missing any of the five
+    /// fields are skipped.
+    static func parseSuggestedModels(_ text: String) -> [KnownModel] {
+        var out: [KnownModel] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            let s = line.trimmingCharacters(in: .whitespaces)
+            guard !s.hasPrefix("#") else { continue }
+            let f = s.components(separatedBy: "\t")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            guard f.count >= 5, !f[0].isEmpty, !f[1].isEmpty else { continue }
+            let (repo, variant) = parse(f[0])
+            let label: String
+            if let v = variant {
+                label = "\(f[1]) · GGUF \(v)"
+            } else if repo.lowercased().contains("mlx") {
+                label = "\(f[1]) · MLX" + (f[0].lowercased().contains("4bit") ? " 4-bit" : "")
+            } else {
+                label = f[1]
+            }
+            out.append(.init(id: f[0], label: label,
+                             minMemoryGB: Int(f[2]), downloadGB: Int(f[3]), about: f[4]))
+        }
+        return out
+    }
 
     /// The Hugging Face hub cache: `HF_HUB_CACHE`, else `HF_HOME/hub`, else
     /// `~/.cache/huggingface/hub` (same lookup as splash and `hf`).
@@ -67,13 +142,21 @@ enum SplashModels {
             for v in variants.sorted() {
                 let id = "\(repo):\(v)"
                 guard !known.contains(id.lowercased()), let s = downloadedSize(id) else { continue }
-                let family = catalog.first { parse($0.id).repo == repo }?.label
-                    .components(separatedBy: " · ").first ?? repo
-                extras.append(.init(id: id, label: "\(family) · GGUF \(v)"))
+                let family = catalog.first { parse($0.id).repo == repo }
+                let name = family?.label.components(separatedBy: " · ").first ?? repo
+                extras.append(.init(id: id, label: "\(name) · GGUF \(v)", about: family?.about))
                 sizes[id] = s
             }
         }
         return (sizes, extras)
+    }
+
+    /// The folder in the Hugging Face cache where `id`'s files live — the
+    /// repo's newest snapshot (files appear in it as the download goes) — or
+    /// nil when the repo isn't in the cache at all.
+    static func storageURL(for id: String) -> URL? {
+        let (repo, _) = parse(id)
+        return snapshotDirs(repo).first
     }
 
     /// Bytes on disk if `id` is fully in the cache, else nil. A GGUF needs
