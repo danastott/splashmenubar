@@ -3,9 +3,21 @@
 A macOS menu bar app that runs `splash serve`, keeps it alive, and shows its
 live inference metrics.
 
+Licensed under the [Apache License 2.0](LICENSE) — see the LICENSE file for
+the full legal text.
+
 ## Screenshots
 
-![The flyout while a request is decoding: tok/s, prefill and cache gauges, GPU/CPU/memory bars, the speed-over-time graph, and per-request and server details](screenshot1.jpeg)
+The flyout while a request is decoding: tok/s, prefill and cache gauges,
+GPU/CPU/memory bars, the speed-over-time graph, and per-request and server
+details.
+
+![The flyout while a request is decoding: tok/s, prefill and cache gauges, GPU/CPU/memory bars, the speed-over-time graph, and per-request and server details](screenshot-flyout.jpeg)
+
+The Settings window: the `splash serve` parameters, UI refresh, appearance
+and the footer actions.
+
+![The Settings window with the splash serve parameters, UI refresh, appearance picker and footer actions](screenshot-settings.jpeg)
 
 ## What it does
 
@@ -203,3 +215,7 @@ prepended automatically.
   `SplashMenuBar.app` on your own machine.
 - While a request is in flight the last completed values stay on screen;
   endpoint metrics update every 2 s.
+
+## License
+
+Apache License 2.0 — the full legal text is in [LICENSE](LICENSE).
