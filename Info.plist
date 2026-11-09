@@ -8,23 +8,23 @@
 	<string>SplashMenuBar</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.danastott.splashmenubar</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.danastott.splashmenubar</string>
 	<key>CFBundleName</key>
 	<string>SplashMenuBar</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>1.0.1</string>
 	<key>CFBundleVersion</key>
-	<string>100</string>
+	<string>101</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-    <key>NSHumanReadableCopyright</key>
-    <string>© 2026 danastott. Licensed under the Apache License 2.0.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 danastott. Licensed under the Apache License 2.0.</string>
 </dict>
 </plist>
