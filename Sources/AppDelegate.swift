@@ -158,16 +158,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        // Tooltip: what splash is doing while it starts up.
-        Publishers.CombineLatest3(store.$startupTitle, store.$startupDetail, store.$state)
+        // Tooltip: what splash is doing, plus the version of the splash
+        // server (when one is serving).
+        Publishers.CombineLatest4(
+            store.$startupTitle, store.$startupDetail, store.$state, store.$serverVersion
+        )
             .receive(on: RunLoop.main)
-            .sink { [weak self] title, detail, _ in
+            .sink { [weak self] title, detail, _, version in
                 guard let self else { return }
+                var base: [String]
                 if self.store.isStartingUp, let title {
-                    self.statusItem?.button?.toolTip = [title, detail].compactMap { $0 }.joined(separator: "\n")
+                    base = [title, detail].compactMap { $0 }
                 } else {
-                    self.statusItem?.button?.toolTip = "Splash"
+                    base = ["Splash"]
                 }
+                if let version { base.append("splash \(version)") }
+                self.statusItem?.button?.toolTip = base.joined(separator: "\n")
             }
             .store(in: &cancellables)
 
@@ -178,9 +184,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] _ in self?.resizePanelToFit() }
             .store(in: &cancellables)
 
+        // A server start is a natural moment to look for a splash release
+        // that appeared while the app was out.
+        store.$state
+            .removeDuplicates()
+            .filter { $0 == .starting }
+            .sink { [weak self] _ in self?.checkSplashUpdate() }
+            .store(in: &cancellables)
+
         startPolling()
         setupNotifications()
         watchNotificationTriggers()
+        checkSplashUpdate()
 
         // Start splash only if the user asked for it in Settings (off by
         // default). First, though, look for a splash that's already running
@@ -666,6 +681,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .settings:
             dismissPanel()
             openSettings()
+        case .update:
+            dismissPanel()
+            updateSplash()
         case .dismissSetupTip:
             store.showSetupTip = false
         case .togglePin:
@@ -853,7 +871,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let brew, response == .alertFirstButtonReturn {
             runInstall(brew: brew, thenStart: thenStart)
         } else if response == copyButton {
-            copyInstallCommand()
+            copyCommand(SplashInstaller.installCommand)
         }
         // "Not Now" / after copying: stay stopped; Start in the flyout re-checks.
     }
@@ -864,6 +882,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.closeInstallWindow()
             if installed {
+                self.checkSplashUpdate()
                 self.connectOrSetUp(openFlyout: !thenStart, startIfNone: thenStart)
             }
         }
@@ -885,6 +904,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installWindow = nil
         installModel = nil
         w?.close()
+    }
+
+    // MARK: - splash updates
+
+    /// Compares the installed splash with the newest release and stores the
+    /// answer in the flyout state; a newer release shows the update card.
+    /// Runs on the main actor but never blocks (the `--version` probe is
+    /// detached).
+    private func checkSplashUpdate() {
+        Task { @MainActor [weak self] in
+            let installed = await Task.detached(priority: .utility) {
+                SplashInstaller.installedVersion()
+            }.value
+            let latest = await SplashInstaller.fetchLatestVersion()
+            guard let self else { return }
+            self.store.installedVersion = installed
+            self.store.latestVersion = latest
+        }
+    }
+
+    /// The flyout's "Update Splash": confirm the upgrade, run it through
+    /// Homebrew, then offer a restart so the server picks up the new
+    /// version.
+    private func updateSplash() {
+        guard store.updateAvailable else { return }
+        let latest = store.latestVersion ?? "?"
+        let current = store.installedVersion ?? "?"
+        guard confirm("Update splash to \(latest)?",
+                      info: "You have splash \(current). This runs:\n    brew upgrade \(SplashInstaller.formula)\nA progress window shows what Homebrew is doing.",
+                      button: "Update") else { return }
+        guard let brew = SplashInstaller.brewPath else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Homebrew not found"
+            alert.informativeText = "The update needs Homebrew to run:\n    brew upgrade \(SplashInstaller.formula)"
+            alert.addButton(withTitle: "OK")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            return
+        }
+        runUpgrade(brew: brew)
+    }
+
+    private func runUpgrade(brew: String) {
+        let model = InstallModel()
+        let view = InstallView(model: model) { [weak self] updated in
+            guard let self else { return }
+            self.closeInstallWindow()
+            self.checkSplashUpdate()
+            guard updated else { return }
+            // The running server (if any) still uses the old binary until it
+            // restarts; a stopped server picks the new version up on Start.
+            guard self.store.effectiveRunning,
+                  self.confirm("Restart the splash server?",
+                               info: "splash was updated, but the running server still uses the old version until it restarts. Requests in progress are cancelled.",
+                               button: "Restart") else { return }
+            self.store.resetForRestart()
+            self.store.serverPort = nil   // ours restarts on the configured port
+            self.proc.restart(with: self.config)
+        }
+        let w = NSWindow(contentViewController: NSHostingController(rootView: view))
+        w.title = "Splash Menu Bar — Update splash"
+        w.styleMask = [.titled, .closable]
+        w.isReleasedWhenClosed = false
+        w.delegate = self
+        w.center()
+        installModel = model
+        installWindow = w
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+        model.start(brew: brew, upgrade: true)
     }
 
     // MARK: - Settings window

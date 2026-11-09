@@ -619,7 +619,7 @@ final class SplashProcess {
         }
     }
 
-    private static func runCapture(_ launchPath: String, _ arguments: [String]) -> String? {
+    static func runCapture(_ launchPath: String, _ arguments: [String]) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launchPath)
         p.arguments = arguments
@@ -634,6 +634,84 @@ final class SplashProcess {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         return String(data: data, encoding: .utf8)
+    }
+
+    /// The version of the splash server `pid` is running, read from the
+    /// install the process was launched out of — a `brew upgrade` may have
+    /// replaced (or removed) that install since, so the PATH's `splash`
+    /// only answers for the current install and is the fallback.
+    static func serverVersion(pid: pid_t) -> String? {
+        guard let exec = executablePath(of: pid) else { return pathSplashVersion() }
+        if let v = cellarVersion(in: exec) { return v }
+        if let prefix = prefixWithSplashBinary(exec) {
+            let bin = (prefix as NSString).appendingPathComponent("bin/splash")
+            if let v = versionString(runCapture(bin, ["--version"])) { return v }
+        }
+        return pathSplashVersion()
+    }
+
+    /// The PATH's `splash --version`, for when the running server's own
+    /// install can't be reached (no pid, or its install is gone and the
+    /// launch command carries no version).
+    private static func pathSplashVersion() -> String? {
+        guard let splash = SplashInstaller.locate("splash") else { return nil }
+        return versionString(runCapture(splash, ["--version"]))
+    }
+
+    /// The process's executable path: the kernel's record, falling back to
+    /// the launch command line (`ps` still holds it) when the binary itself
+    /// is gone — the usual case after a Homebrew upgrade removes the old
+    /// Cellar.
+    static func executablePath(of pid: pid_t) -> String? {
+        var buf = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        if proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 {
+            return String(cString: buf)
+        }
+        guard let raw = runCapture("/bin/ps", ["-o", "args=", "-p", "\(pid)"]) else { return nil }
+        let args = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = args.split(separator: " ", maxSplits: 1).first else { return nil }
+        var path = first
+        if path.hasPrefix("\""), path.count >= 2, path.hasSuffix("\"") {
+            path = path.dropFirst().dropLast()
+        }
+        return path.isEmpty ? nil : String(path)
+    }
+
+    /// The version baked into a Homebrew Cellar path
+    /// (`…/Cellar/splash/1.5.0/…` → "1.5.0"): still readable after the
+    /// upgrade removed the install. Other formulas' Cellars don't count.
+    static func cellarVersion(in path: String) -> String? {
+        let parts = path.split(separator: "/")
+        guard let i = parts.firstIndex(of: "Cellar"),
+              i + 2 < parts.count, parts[i + 1] == "splash"
+        else { return nil }
+        return String(parts[i + 2])
+    }
+
+    /// The install prefix owning `path`: the nearest ancestor directory
+    /// holding a `bin/splash` (a Homebrew Cellar root, a pipx venv, …).
+    static func prefixWithSplashBinary(_ path: String) -> String? {
+        var dir = (path as NSString).deletingLastPathComponent
+        let fm = FileManager.default
+        for _ in 0..<10 {
+            if fm.isExecutableFile(atPath: (dir as NSString).appendingPathComponent("bin/splash")) {
+                return dir
+            }
+            let parent = (dir as NSString).deletingLastPathComponent
+            guard parent != dir else { break }
+            dir = parent
+        }
+        return nil
+    }
+
+    /// `splash --version`'s reply ("Splash 1.6.0") → "1.6.0".
+    static func versionString(_ output: String?) -> String? {
+        let token = output?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0 == " " || $0 == "\t" }).last
+            .map(String.init)
+        guard let token, token.contains(where: \.isNumber) else { return nil }
+        return token
     }
 
     /// Stops whatever serves splash now and starts it with `config` (which

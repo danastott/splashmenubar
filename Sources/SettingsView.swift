@@ -412,7 +412,7 @@ struct SettingsView: View {
             }
             modelStatus
             if let need = settings.selectedModel?.minMemoryGB,
-               let shortfall = settings.modelMemoryShortfallGB {
+               settings.modelMemoryShortfallGB != nil {
                 Label("Needs about \(need) GB of RAM — this Mac has \(SettingsModel.macMemoryGB) GB, so this model will likely not run here",
                       systemImage: "exclamationmark.triangle")
                     .foregroundColor(.orange)

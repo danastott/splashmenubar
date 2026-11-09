@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 enum MenuAction {
-    case start, stop, restart, settings, quit, togglePin, dismissSetupTip
+    case start, stop, restart, settings, quit, togglePin, dismissSetupTip, update
 }
 
 struct MetricsView: View {
@@ -67,6 +67,9 @@ struct MetricsView: View {
             }
             if store.effectiveRunning, let warn = engineWarning {
                 warningCard(warn)
+            }
+            if store.updateAvailable {
+                updateCard
             }
             gauges
             sectionLabel("DECODE SPEED · TOK/S",
@@ -299,6 +302,32 @@ struct MetricsView: View {
         .help("A service other than splash is listening on port \(config.port) — the splash this app started exited because the port was taken. Stop the other service or change the port in Settings.")
     }
 
+    /// A splash release newer than the installed one: update through
+    /// Homebrew (the button confirms first), then optionally restart the
+    /// server onto the new version.
+    private var updateCard: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.accentColor)
+                Text("splash \(store.latestVersion ?? "") available")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Button("Update Splash") { onAction(.update) }
+                    .controlSize(.small)
+                    .help("Confirm and update splash to \(store.latestVersion ?? "the newest version") through Homebrew; afterwards the server can be restarted onto it.")
+            }
+            Text("Installed: \(store.installedVersion ?? "?"). The update runs `brew upgrade \(SplashInstaller.formula)`.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.1)))
+        .help("A newer splash release is available. Update Splash runs brew upgrade for the splash formula; the server restarts only if you confirm it afterwards.")
+    }
+
     /// A warning while the server is up but its inference engine is not:
     /// the app's child (the Python wrapper) stays alive across engine
     /// crashes, so without this the flyout would look healthy.
@@ -375,17 +404,28 @@ struct MetricsView: View {
         .help(warn.detail)
     }
 
-    private var statusHelp: String {
-        if store.isStartingUp { return "Yellow: splash is starting (downloading or loading the model)." }
-        if store.effectiveRunning {
-            return store.endpointReady || store.readyModel != nil
+    /// The flyout header's tooltip: the status line, plus the version of
+    /// the splash server (when one is serving).
+    var statusHelp: String {
+        let base: String
+        if store.isStartingUp {
+            base = "Yellow: splash is starting (downloading or loading the model)."
+        } else if store.effectiveRunning {
+            base = store.endpointReady || store.readyModel != nil
                 ? "Green: splash is running and ready for requests."
                 : "Green: splash is running."
+        } else {
+            switch store.state {
+            case .crashed(let info):
+                base = "Red: splash exited unexpectedly (\(info.description)). Press Start to run it again."
+            default:
+                base = "Gray: splash is stopped. Press Start to run it."
+            }
         }
-        switch store.state {
-        case .crashed(let info): return "Red: splash exited unexpectedly (\(info.description)). Press Start to run it again."
-        default: return "Gray: splash is stopped. Press Start to run it."
+        if let version = store.serverVersion {
+            return base + "\nsplash \(version)"
         }
+        return base
     }
 
     private var statusColor: Color {
@@ -507,7 +547,7 @@ struct MetricsView: View {
                 BarGauge(
                     value: store.system.memory,
                     color: memBarColor,
-                    caption: "Mac RAM",
+                    caption: "RAM",
                     help: memoryHelp + " Right-click to pick the bar's color; while the pressure is warning or critical the bar shows that color instead.",
                     onOpenColorPanel: { onOpenGaugeColorPanel?("mem") }
                 )
@@ -604,7 +644,7 @@ struct MetricsView: View {
             row("Active", activeSummary,
                 help: "Requests in flight right now: generating (decode) · processing their prompt (prefill) · waiting their turn (queued), plus how long the longest-waiting request has waited.")
             row("splash (server)", memorySummary,
-                help: "Memory the splash server itself currently holds, as it reports it (— when it doesn't), plus its peak since the server started. Different from the Mac RAM bar in the gauges, which is the whole Mac's memory use.")
+                help: "Memory the splash server itself currently holds, as it reports it (— when it doesn't), plus its peak since the server started. Different from the RAM bar in the gauges, which is the whole Mac's memory use.")
             if store.kvAllocatedBytes != nil {
                 row("KV cache", "\(Fmt.bytes(store.kvAllocatedBytes)) · \(Fmt.context(store.kvHitTokens)) tok reused",
                     help: "KV cache: server memory held for prompt context, and how many prompt tokens were served from it since startup instead of being prefilled again — high reuse is why similar prompts run fast.")

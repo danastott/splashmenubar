@@ -78,6 +78,24 @@ final class MetricsStore: ObservableObject {
     /// Port of the splash server the app is watching: the configured port,
     /// or that of a splash found running elsewhere (nil = the configured one).
     @Published var serverPort: Int?
+    /// Version of the splash server currently serving, read from the
+    /// install its process was launched out of (shown in the menu bar
+    /// tooltip); nil while no server answers /status.
+    @Published var serverVersion: String?
+    /// Version of the `splash` on the PATH — what `brew upgrade` would
+    /// change (nil when splash isn't installed).
+    @Published var installedVersion: String?
+    /// Newest splash release the app has seen from the tap (nil while
+    /// unknown or the check failed).
+    @Published var latestVersion: String?
+    /// A release newer than the installed one: the flyout offers an update.
+    var updateAvailable: Bool {
+        guard let installed = installedVersion, let latest = latestVersion else { return false }
+        return SplashVersion.isNewer(latest, over: installed)
+    }
+    /// The server process whose version was last looked up (pids never
+    /// repeat), so one running server costs one lookup.
+    private var versionCheckedPID: Int?
     /// User-picked gauge colors by gauge id ("tok", "prefill", "cached",
     /// "gpu", "cpu", "mem", "graph"), as "#RRGGBB" hex — the live copy the
     /// flyout renders from; the app persists it on every change.
@@ -317,6 +335,23 @@ final class MetricsStore: ObservableObject {
 
     // MARK: - Endpoint ingest
 
+    /// Looks up the running server's version once per server process (its
+    /// pid): off the main thread, and a result arriving after a restart is
+    /// dropped.
+    private func updateServerVersion(pid: Int?) {
+        guard let pid, pid != versionCheckedPID else { return }
+        versionCheckedPID = pid
+        serverVersion = nil
+        let serverPid = Int32(truncatingIfNeeded: pid)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let version = SplashProcess.serverVersion(pid: serverPid)
+            DispatchQueue.main.async {
+                guard let self, self.versionCheckedPID == pid else { return }
+                self.serverVersion = version
+            }
+        }
+    }
+
     func apply(status doc: StatusDoc) {
         endpointAlive = true
         pollFailureStreak = 0
@@ -330,6 +365,7 @@ final class MetricsStore: ObservableObject {
         if let s = doc.instance?.started_at {
             serverStartedAt = Date(timeIntervalSince1970: s)
         }
+        updateServerVersion(pid: doc.instance?.pid)
 
         let m = doc.metrics
         lifetimeTokensPerSecond = m?.decode_tokens_per_second
@@ -481,6 +517,9 @@ final class MetricsStore: ObservableObject {
         decodeGeneratedTokens = nil
         decodeMaxTokens = nil
         decodeAgeSeconds = nil
+        // No server answering, no server version to show.
+        serverVersion = nil
+        versionCheckedPID = nil
     }
 
     func resetForRestart() {
@@ -501,6 +540,8 @@ final class MetricsStore: ObservableObject {
         endpointAlive = false
         pollFailureStreak = 0
         portOccupiedByOther = false
+        serverVersion = nil
+        versionCheckedPID = nil
         prefillFraction = nil
         prefillRemainingTokens = nil
         prefillETASeconds = nil

@@ -24,6 +24,53 @@ enum SplashInstaller {
 
     static var isSplashInstalled: Bool { locate("splash") != nil }
     static var brewPath: String? { locate("brew") }
+
+    /// Version of the `splash` on the PATH ("Splash 1.6.0" → "1.6.0");
+    /// nil when splash isn't installed. Runs a process: keep it off the
+    /// main thread.
+    static func installedVersion() -> String? {
+        guard let splash = locate("splash") else { return nil }
+        return SplashProcess.versionString(SplashProcess.runCapture(splash, ["--version"]))
+    }
+
+    /// Newest splash release, from the GitHub releases the Homebrew
+    /// formula tracks (nil on any network or parse failure).
+    static func fetchLatestVersion(timeout: TimeInterval = 5) async -> String? {
+        guard let url = URL(string: "https://api.github.com/repos/incoai/splash/releases/latest")
+        else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: timeout)
+        request.setValue("SplashMenuBar", forHTTPHeaderField: "User-Agent")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            struct Release: Decodable { let tag_name: String? }
+            guard var tag = try JSONDecoder().decode(Release.self, from: data).tag_name else {
+                return nil
+            }
+            if tag.hasPrefix("v") { tag.removeFirst() }   // tolerate v-prefixed tags
+            return tag
+        } catch {
+            return nil
+        }
+    }
+}
+
+/// Splash version strings as `splash --version` and release tags report
+/// them ("1.6.0"), compared segment by segment: numerically where both
+/// sides are numbers, as strings otherwise.
+enum SplashVersion {
+    static func isNewer(_ a: String, over b: String) -> Bool {
+        let sa = a.split(separator: ".", omittingEmptySubsequences: false)
+        let sb = b.split(separator: ".", omittingEmptySubsequences: false)
+        for i in 0..<max(sa.count, sb.count) {
+            let x = i < sa.count ? sa[i] : ""
+            let y = i < sb.count ? sb[i] : ""
+            if x == y { continue }
+            if let nx = Int(x), let ny = Int(y) { return nx > ny }
+            return String(x) > String(y)
+        }
+        return false
+    }
 }
 
 // MARK: - Install progress window
@@ -49,12 +96,24 @@ final class InstallModel: ObservableObject {
     /// How long without output counts as a stall.
     private let stallAfter: TimeInterval = 5 * 60
 
-    /// Runs `brew install` with stdin closed so it can never block on a prompt.
-    func start(brew: String) {
+    /// The command the window shows ($ line, Copy Command).
+    var commandLine: String = SplashInstaller.installCommand
+    /// The run is a `brew upgrade` of an existing install (wording and
+    /// success check differ from a first install).
+    var isUpgrade = false
+
+    /// Runs `brew install` (or `brew upgrade` for an existing install) with
+    /// stdin closed so it can never block on a prompt. Install additionally
+    /// requires `splash` on the PATH at the end; a clean upgrade exit
+    /// suffices.
+    func start(brew: String, upgrade: Bool = false) {
+        isUpgrade = upgrade
+        let command = upgrade ? "upgrade" : "install"
+        commandLine = "brew \(command) \(SplashInstaller.formula)"
         let p = Process()
         let pipe = Pipe()
         p.executableURL = URL(fileURLWithPath: brew)
-        p.arguments = ["install", SplashInstaller.formula]
+        p.arguments = [command, SplashInstaller.formula]
         var env = SplashProcess.childEnvironment()
         env["NONINTERACTIVE"] = "1"
         env["HOMEBREW_NO_ENV_HINTS"] = "1"
@@ -84,8 +143,8 @@ final class InstallModel: ObservableObject {
                 self.stopStallTimer()
                 self.proc = nil
                 if self.cancelled {
-                    self.phase = .failed("Installation cancelled.")
-                } else if finished.terminationStatus == 0 && SplashInstaller.isSplashInstalled {
+                    self.phase = .failed(self.isUpgrade ? "Update cancelled." : "Installation cancelled.")
+                } else if finished.terminationStatus == 0 && (self.isUpgrade || SplashInstaller.isSplashInstalled) {
                     self.phase = .succeeded
                 } else if finished.terminationStatus == 0 {
                     self.phase = .failed("Homebrew finished, but `splash` still isn't on the PATH.")
@@ -95,7 +154,7 @@ final class InstallModel: ObservableObject {
             }
         }
 
-        output = "$ \(SplashInstaller.installCommand)\n"
+        output = "$ \(commandLine)\n"
         phase = .running
         stalled = false
         lastOutputAt = Date()
@@ -144,10 +203,10 @@ struct InstallView: View {
                 switch model.phase {
                 case .running:
                     ProgressView().controlSize(.small)
-                    Text("Installing splash with Homebrew…").font(.headline)
+                    Text(model.isUpgrade ? "Updating splash with Homebrew…" : "Installing splash with Homebrew…").font(.headline)
                 case .succeeded:
                     Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
-                    Text("splash is installed").font(.headline)
+                    Text(model.isUpgrade ? "splash is updated" : "splash is installed").font(.headline)
                 case .failed(let reason):
                     Image(systemName: "xmark.octagon.fill").foregroundColor(.red)
                     Text(reason).font(.headline)
@@ -155,7 +214,7 @@ struct InstallView: View {
             }
 
             if model.stalled {
-                Text("No output for 5 minutes — brew may be waiting on the network, or on an Xcode license it can't ask for (run `sudo xcodebuild -license accept` in Terminal). The install keeps running; Cancel if it never finishes.")
+                Text("No output for 5 minutes — brew may be waiting on the network, or on an Xcode license it can't ask for (run `sudo xcodebuild -license accept` in Terminal). The run keeps going; Cancel if it never finishes.")
                     .font(.system(size: 11))
                     .foregroundColor(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -173,21 +232,21 @@ struct InstallView: View {
                 }
                 .background(Color(nsColor: .textBackgroundColor))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
-                .onChange(of: model.output) { _ in
+                .onChange(of: model.output) {
                     reader.scrollTo("log", anchor: .bottom)
                 }
             }
 
             HStack {
                 if case .failed = model.phase {
-                    Button("Copy Command") { copyInstallCommand() }
+                    Button("Copy Command") { copyCommand(model.commandLine) }
                 }
                 Spacer()
                 switch model.phase {
                 case .running:
                     Button("Cancel") { model.cancel() }
                 case .succeeded:
-                    Button("Start Splash") { onFinish(true) }
+                    Button(model.isUpgrade ? "Done" : "Start Splash") { onFinish(true) }
                         .keyboardShortcut(.defaultAction)
                 case .failed:
                     Button("Close") { onFinish(false) }
@@ -200,7 +259,7 @@ struct InstallView: View {
     }
 }
 
-func copyInstallCommand() {
+func copyCommand(_ command: String) {
     NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(SplashInstaller.installCommand, forType: .string)
+    NSPasteboard.general.setString(command, forType: .string)
 }

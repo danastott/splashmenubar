@@ -85,7 +85,7 @@ and the footer actions.
     0-based Y axis labeled at round steps and a dotted average line
   - load: completed/cancelled/failed requests, TTFT p50/p95, prefill and
     decode speed, total output, active requests (decode/prefill/queued),
-    the whole Mac's memory (the "Mac RAM" bar), the splash server's own
+    the whole Mac's memory (the "RAM" bar), the splash server's own
     memory ("splash (server)"), uptime, thermal state, and the chip
     temperature (the hottest Apple silicon die sensor, read through IOKit's
     HID event system; shown in °F or °C per System Settings › General ›
@@ -102,7 +102,7 @@ and the footer actions.
     having restarted, or Metal being unhealthy (`transport.recovering`,
     `transport.restarts`, `metal.healthy`, failure counters)
   - **memory pressure**: the Mac's memory pressure as seen by the server
-    (`memory_pressure`) colors the Mac RAM load bar — green = normal,
+    (`memory_pressure`) colors the RAM load bar — green = normal,
     yellow = warning, red = critical (orange until the first status
     arrives; a user-picked bar color, if any, shows while the pressure is
     normal). The raw state wobbles around its threshold, so a new color
@@ -125,6 +125,24 @@ and the footer actions.
   child dies with "address in use" and the flyout instead shows an orange
   **port in use** card — "Something else (not splash) is serving port N…
   Stop that service — or change the port in Settings — then press Start."
+- **Server version**: hovering the menu bar item — or the flyout header's
+  "Splash" status and name — shows the version of the splash server that is
+  serving — read from the install the server process
+  was launched out of (the version in its Homebrew Cellar path, or the
+  install's own `bin/splash --version`), so it stays correct after a
+  `brew upgrade` replaces or removes that install. If the server's install
+  can't be identified, the PATH's `splash --version` answers instead; with
+  no server serving, the tooltip is just "Splash".
+- **Update check**: at launch and each time a server starts, the app
+  fetches the newest splash release (the GitHub release the Homebrew formula
+  tracks) and compares it with the `splash` installed on the PATH. When a
+  newer one exists, the flyout shows an update card — "splash X.Y.Z
+  available" (installed version underneath) with an **Update Splash**
+  button. The button asks for confirmation, then runs
+  `brew upgrade incoai/tap/splash` in the same progress window as the
+  install. Once the upgrade succeeds and a server is running, the app asks
+  whether to restart it — a running server keeps using the old binary until
+  it is restarted (a stopped server picks the new version up on Start).
 - The status bar item shows the live tok/s while decoding, e.g. `▣ 78.5 t/s`; while a prompt is prefilling (and nothing is decoding) it shows the prompt progress instead, e.g. `▣ ◐ 46%`; when the server is idle it shows a green ●.
 
 ## Build
@@ -184,7 +202,7 @@ back to its default (blank = splash's own default for that flag); nothing is
 saved until you press Save.
 
 **Gauge colors**: right-click any ring (tok/s, prefill, cache-hit), any load
-bar (GPU, CPU, Mac RAM) or the DECODE SPEED graph and choose **Color…** to
+bar (GPU, CPU, RAM) or the DECODE SPEED graph and choose **Color…** to
 open the system color panel for that element — it updates the gauge as you
 pick, and the choice persists in the same file (`gaugeColors`). (A color
 well cannot sit inside a context menu on macOS, hence the panel.) The Mac
