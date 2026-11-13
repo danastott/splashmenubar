@@ -69,6 +69,14 @@ struct SplashConfig: Codable, Equatable {
     var disableANE: Bool = false        // --disable-ane
     var maxCacheDisk: String?   // --max-cache-disk, e.g. "16G" ("0" turns it off)
     var persistentCache: Bool = false   // --persistent-cache
+    /// Start with `--revision` set to the commit of the model's newest
+    /// complete snapshot in the Hugging Face cache, so a new commit on the
+    /// repository's default branch is not downloaded over the copy already
+    /// on disk. Off by default, when splash follows the default branch as
+    /// it does from a terminal. With nothing fully in the cache there is no
+    /// revision to pin, so the first start downloads as usual and only
+    /// restarts after are pinned.
+    var pinModelVersion: Bool = false
     /// App setting, not a splash flag: seconds between /status polls, i.e.
     /// how often the flyout and menu bar refresh.
     var refreshInterval: Double = 2
@@ -142,6 +150,7 @@ struct SplashConfig: Codable, Equatable {
          disableANE: Bool = false,
          maxCacheDisk: String? = nil,
          persistentCache: Bool = false,
+         pinModelVersion: Bool = false,
          refreshInterval: Double = 2,
          graphMinutes: Int = 5,
          autoRestart: Bool = false,
@@ -162,6 +171,7 @@ struct SplashConfig: Codable, Equatable {
         self.disableANE = disableANE
         self.maxCacheDisk = maxCacheDisk
         self.persistentCache = persistentCache
+        self.pinModelVersion = pinModelVersion
         self.refreshInterval = refreshInterval
         self.graphMinutes = graphMinutes
         self.autoRestart = autoRestart
@@ -188,6 +198,7 @@ struct SplashConfig: Codable, Equatable {
         disableANE = try c.decodeIfPresent(Bool.self, forKey: .disableANE) ?? false
         maxCacheDisk = try c.decodeIfPresent(String.self, forKey: .maxCacheDisk)
         persistentCache = try c.decodeIfPresent(Bool.self, forKey: .persistentCache) ?? false
+        pinModelVersion = try c.decodeIfPresent(Bool.self, forKey: .pinModelVersion) ?? false
         let interval = try c.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 2
         refreshInterval = min(max(interval, 0.25), 60)
         let minutes = try c.decodeIfPresent(Int.self, forKey: .graphMinutes) ?? 5
@@ -274,6 +285,11 @@ struct SplashConfig: Codable, Equatable {
         if disableANE { args.append("--disable-ane") }
         if let v = clean(maxCacheDisk) { args += ["--max-cache-disk", v] }
         if persistentCache { args.append("--persistent-cache") }
+        // Only a complete copy in the cache gives a commit to pin; without
+        // one the first start downloads the default branch as usual.
+        if pinModelVersion, let revision = SplashModels.cachedCommit(for: model) {
+            args += ["--revision", revision]
+        }
         return args
     }
 

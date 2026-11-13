@@ -10,6 +10,7 @@ final class SplashConfigTests: XCTestCase {
         var c = SplashConfig.default
         c.launchAtLogin = true
         c.startServerOnLaunch = true
+        c.pinModelVersion = true
         c.panelPinned = true
         c.pinnedPanelTopLeft = SplashConfig.PanelTopLeft(x: 123.5, y: 640.0)
         let data = try JSONEncoder().encode(c)
@@ -35,6 +36,7 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertFalse(c.launchAtLogin)
         // Files from before the option existed load with it off.
         XCTAssertFalse(c.startServerOnLaunch)
+        XCTAssertFalse(c.pinModelVersion)
         XCTAssertFalse(c.panelPinned)
         XCTAssertNil(c.pinnedPanelTopLeft)
     }
@@ -168,6 +170,7 @@ final class SplashConfigTests: XCTestCase {
         m.customModel = true
         m.port = "9999"
         m.maxMemory = "32G"
+        m.pinModelVersion = true
         m.autoRestart = false
         m.launchAtLogin = false
         m.refreshInterval = 10
@@ -180,6 +183,7 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertFalse(m.customModel)
         XCTAssertEqual(m.port, String(d.port))
         XCTAssertEqual(m.maxMemory, "")
+        XCTAssertFalse(m.pinModelVersion)
         XCTAssertFalse(m.autoRestart)
         XCTAssertFalse(m.launchAtLogin)
         XCTAssertFalse(m.startServerOnLaunch)
@@ -220,5 +224,72 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertFalse(SplashProcess.isSplashCommandLine(
             "/Users/me/projects/splashmenubar/SplashMenuBar.app/Contents/MacOS/SplashMenuBar"))
         XCTAssertFalse(SplashProcess.isSplashCommandLine("python3 -m http.server 8000"))
+    }
+
+    /// Run `block` with HF_HUB_CACHE pointed at a fresh temp directory,
+    /// restoring the environment afterwards.
+    private func withHubCache(_ block: (URL) throws -> Void) throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("splashmenubar-hf-\(UUID().uuidString)")
+        let previous = ProcessInfo.processInfo.environment["HF_HUB_CACHE"]
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            if let previous {
+                setenv("HF_HUB_CACHE", previous, 1)
+            } else {
+                unsetenv("HF_HUB_CACHE")
+            }
+        }
+        try FileManager.default.createDirectory(at: dir,
+            withIntermediateDirectories: true)
+        setenv("HF_HUB_CACHE", dir.path, 1)
+        try block(dir)
+    }
+
+    /// A snapshot folder holding `file` in the cache under `repo`.
+    private func makeSnapshot(_ cache: URL, repo: String, commit: String,
+                              file: String) throws {
+        let snap = cache
+            .appendingPathComponent(
+                "models--" + repo.replacingOccurrences(of: "/", with: "--"))
+            .appendingPathComponent("snapshots")
+            .appendingPathComponent(commit)
+        let fileURL = snap.appendingPathComponent(file)
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true)
+        try Data([0x01]).write(to: fileURL)
+    }
+
+    /// Pinning passes --revision only once the model is fully in the cache:
+    /// with an empty cache the first start downloads as usual, with a
+    /// complete snapshot restarts pin its commit, and an incomplete
+    /// snapshot (missing split part) pins nothing.
+    func testServeArgumentsPinModelVersion() throws {
+        let commit = "0123456789abcdef0123456789abcdef01234567"
+        try withHubCache { cache in
+            var c = SplashConfig.default
+            c.model = "owner/repo:UD-Q4_K_M"
+
+            // Unpinned never passes --revision.
+            XCTAssertFalse(c.serveArguments.contains("--revision"))
+
+            c.pinModelVersion = true
+            // Nothing cached: no commit to pin, so no --revision.
+            XCTAssertFalse(c.serveArguments.contains("--revision"))
+
+            // A complete snapshot: restarts pin its commit.
+            try makeSnapshot(cache, repo: "owner/repo", commit: commit,
+                file: "Qwen3.8-27B-UD-Q4_K_M.gguf")
+            XCTAssertEqual(c.serveArguments, [
+                "splash", "serve", "--model", "owner/repo:UD-Q4_K_M",
+                "--port", "8081", "--revision", commit,
+            ])
+
+            // An incomplete variant pins nothing: only part 1 of 3.
+            c.model = "owner2/repo2:UD-Q4_K_XL"
+            try makeSnapshot(cache, repo: "owner2/repo2", commit: commit,
+                file: "UD-Q4_K_XL/model-00001-of-00003.gguf")
+            XCTAssertFalse(c.serveArguments.contains("--revision"))
+        }
     }
 }

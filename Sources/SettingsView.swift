@@ -28,6 +28,7 @@ final class SettingsModel: ObservableObject {
     @Published var disableANE: Bool
     @Published var maxCacheDisk: String
     @Published var persistentCache: Bool
+    @Published var pinModelVersion: Bool
     @Published var refreshInterval: Double
     @Published var graphMinutes: Int
     @Published var autoRestart: Bool
@@ -113,6 +114,7 @@ final class SettingsModel: ObservableObject {
         disableANE = config.disableANE
         maxCacheDisk = config.maxCacheDisk ?? ""
         persistentCache = config.persistentCache
+        pinModelVersion = config.pinModelVersion
         refreshInterval = config.refreshInterval
         graphMinutes = config.graphMinutes
         autoRestart = config.autoRestart
@@ -168,6 +170,7 @@ final class SettingsModel: ObservableObject {
         c.stateFormat = stateFormat == "fp32" ? nil : stateFormat
         c.disableANE = disableANE
         c.persistentCache = persistentCache
+        c.pinModelVersion = pinModelVersion
         c.refreshInterval = refreshInterval
         c.graphMinutes = graphMinutes
         c.autoRestart = autoRestart
@@ -214,6 +217,7 @@ final class SettingsModel: ObservableObject {
         stateFormat = d.stateFormat ?? "fp32"
         disableANE = d.disableANE
         persistentCache = d.persistentCache
+        pinModelVersion = d.pinModelVersion
         refreshInterval = d.refreshInterval
         graphMinutes = d.graphMinutes
         autoRestart = d.autoRestart
@@ -242,6 +246,10 @@ struct SettingsView: View {
             VStack(spacing: 8) {
                 field("Model", help: "--model: a supported model, or Custom… for any Hugging Face model as OWNER/REPO[:VARIANT] with the GGUF variant after ':'. Downloaded models are found in the Hugging Face cache; others download on first start, along with their draft.") {
                     modelPicker
+                }
+                field("Pin model version", help: "--revision: pin splash to the commit of the model already in the Hugging Face cache, so a new commit on the repository's default branch is not re-downloaded over the copy on disk. Off by default, when splash follows the default branch. With no complete copy in the cache there is no version to pin, so the first start downloads as usual and only restarts after are pinned.") {
+                    Toggle("", isOn: $settings.pinModelVersion)
+                        .frame(width: 160)
                 }
                 field("Port", help: "--port: HTTP port the server listens on (127.0.0.1).") {
                     VStack(alignment: .leading, spacing: 2) {

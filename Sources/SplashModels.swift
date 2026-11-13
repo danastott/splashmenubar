@@ -159,28 +159,46 @@ enum SplashModels {
         return snapshotDirs(repo).first
     }
 
-    /// Bytes on disk if `id` is fully in the cache, else nil. A GGUF needs
-    /// every file of its variant (all parts of a split file); an MLX or other
-    /// safetensors repo needs config.json and every shard its index lists.
+    /// Bytes on disk if `id` is fully in the cache, else nil.
     static func downloadedSize(_ id: String) -> Int64? {
+        completeSnapshot(for: id)?.size
+    }
+
+    /// The commit of the first snapshot holding `id` completely — the
+    /// revision a pinned start passes to `--revision` — or nil when `id`
+    /// isn't fully in the cache.
+    static func cachedCommit(for id: String) -> String? {
+        completeSnapshot(for: id)?.commit
+    }
+
+    /// The first (newest-first) snapshot of `id`'s repository that holds
+    /// `id` completely: the snapshot's commit (its folder name) and bytes
+    /// on disk; nil when none does. A GGUF needs every file of its variant
+    /// (all parts of a split file); an MLX or other safetensors repo needs
+    /// config.json and every shard its index lists.
+    private static func completeSnapshot(for id: String)
+        -> (commit: String, size: Int64)? {
         let (repo, variant) = parse(id)
         for snapshot in snapshotDirs(repo) {
             let all = files(in: snapshot)
+            let size: Int64?
             if let variant {
                 let parts = all.filter {
                     $0.path.lowercased().hasSuffix(".gguf")
                         && ggufVariant($0.path)?.lowercased() == variant.lowercased()
                 }
-                guard !parts.isEmpty, splitComplete(parts.map(\.path)) else { continue }
-                return parts.reduce(0) { $0 + $1.size }
+                size = parts.isEmpty || !splitComplete(parts.map(\.path)) ? nil
+                    : parts.reduce(0) { $0 + $1.size }
             } else {
                 let names = Set(all.map(\.path))
-                guard names.contains("config.json") else { continue }
                 let weights = all.filter { $0.path.hasSuffix(".safetensors") }
-                guard !weights.isEmpty else { continue }
-                if let needed = indexShards(snapshot), !needed.isSubset(of: names) { continue }
-                return weights.reduce(0) { $0 + $1.size }
+                let shardsComplete =
+                    indexShards(snapshot).map { names.isSuperset(of: $0) } ?? true
+                size = names.contains("config.json") && !weights.isEmpty
+                    && shardsComplete
+                    ? weights.reduce(0) { $0 + $1.size } : nil
             }
+            if let size { return (snapshot.lastPathComponent, size) }
         }
         return nil
     }

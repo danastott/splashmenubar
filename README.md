@@ -174,6 +174,7 @@ edits the full `splash serve` command line, persisted to
 | Language only | `--language-only` | skip vision |
 | Disable Neural Engine | `--disable-ane` | prefill on GPU alone |
 | Persistent cache | `--persistent-cache` | keep the SSD cache across restarts |
+| Pin model version | `--revision` | off by default, when splash follows the repository's default branch; on, splash starts with `--revision` set to the commit of the model's newest complete snapshot in the Hugging Face cache, so a new commit upstream is not re-downloaded over the copy on disk. With no complete copy cached there is no version to pin, so the first start downloads as usual |
 
 Blank optional fields and default pickers omit the flag entirely.
 
