@@ -36,7 +36,7 @@ test: $(SOURCES) $(TESTSRC)
 	@mkdir -p build/test $(TESTBUNDLE)/Contents/MacOS
 	$(SWIFTC) -module-name $(APP) -enable-testing -emit-library \
 	    -emit-module -emit-module-path build/test/$(APP).swiftmodule \
-	    -o $(TESTLIB) $(filter-out Sources/main.swift,$(SOURCES)) \
+	    -o $(TESTLIB) $(filter-out Sources/App.swift,$(SOURCES)) \
 	    -framework AppKit -framework SwiftUI -framework IOKit \
 	    -Xlinker -install_name -Xlinker @rpath/lib$(APP).dylib
 	$(SWIFTC) -module-name $(APP)Tests -emit-library -o build/test/$(APP)Tests.dylib $(TESTSRC) \

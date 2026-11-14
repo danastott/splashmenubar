@@ -13,10 +13,18 @@ details.
 
 ![The flyout while a request is decoding: tok/s, prefill and cache gauges, GPU/CPU/memory bars, the speed-over-time graph, and per-request and server details](screenshot-flyout.jpeg)
 
-The Settings window: the `splash serve` parameters, UI refresh, appearance
-and the footer actions.
+The Settings window's tabs: **Model** — the served model, its size on disk,
+the model cache and version pinning; **AI harness** — the installed coding
+harnesses and Auto Connect; **Server** — the `splash serve` parameters;
+**App** — UI refresh, auto-restart, launch options and appearance.
 
-![The Settings window with the splash serve parameters, UI refresh, appearance picker and footer actions](screenshot-settings.jpeg)
+![The Settings window's Model tab: the served model with its on-disk size, the model cache button and version pinning](settings_model.png)
+
+![The Settings window's AI harness tab: the installed harnesses, where each points and Auto Connect](settings_ai_harness.png)
+
+![The Settings window's Server tab: the splash serve parameters and the footer actions](settings_server.png)
+
+![The Settings window's App tab: UI refresh, speed graph span, auto-restart, launch options and appearance](settings_app.png)
 
 ## What it does
 
@@ -143,6 +151,18 @@ and the footer actions.
   install. Once the upgrade succeeds and a server is running, the app asks
   whether to restart it — a running server keeps using the old binary until
   it is restarted (a stopped server picks the new version up on Start).
+- **AI harness Auto Connect**: the **AI harness** field in Settings lists
+  every supported coding harness (Claude Code, Codex, pi, omp, Hermes,
+  OpenCode, Copilot CLI, Droid, Grok Build, Kilo, Kimi Code, Mastra Code,
+  Qwen Code) — the installed ones show where each points, the rest are
+  marked not installed; **Auto Connect** writes the harness's own
+  configuration persistently, so it calls the served splash model from a
+  terminal — everything else in that file is preserved.
+- **Manage models**: the **Model cache** field in Settings opens a window
+  over the Hugging Face cache — the repositories and their versions, with
+  sizes — where new models (or a specific revision) are downloaded with
+  streamed progress, and versions or whole repositories are removed, freeing
+  the disk no remaining version references.
 - The status bar item shows the live tok/s while decoding, e.g. `▣ 78.5 t/s`; while a prompt is prefilling (and nothing is decoding) it shows the prompt progress instead, e.g. `▣ ◐ 46%`; when the server is idle it shows a green ●.
 
 ## Build
@@ -164,7 +184,7 @@ edits the full `splash serve` command line, persisted to
 | Field | Flag | Notes |
 |---|---|---|
 | Model | `--model` | drop-down of splash's suggested models (read from `suggested-models.tsv` shipped with the installed splash, so the list tracks splash's releases; a built-in table is the fallback), grouped into Downloaded (with size on disk) and Not downloaded (with download size); a one-line description and, for models that outgrow the machine, a "needs about N GB of RAM" warning; **Custom…** takes any `OWNER/REPO[:VARIANT]` |
-| Port | `--port` | e.g. `8081` |
+| Port | `--port` | e.g. `8000` |
 | Max memory | `--max-memory` | e.g. `28G` (blank = auto) |
 | Idle release | `--idle-release` | e.g. `off` (blank = default 10m) |
 | Max context | `--max-context` | e.g. `100K` (blank = auto) |
@@ -181,6 +201,38 @@ Blank optional fields and default pickers omit the flag entirely.
 Downloaded models are found in the Hugging Face cache (`HF_HUB_CACHE`, else
 `HF_HOME/hub`, else `~/.cache/huggingface/hub`), where splash downloads them.
 Other GGUF variants of the supported repos found there are listed too.
+
+**Model cache** opens **Manage models**: the cache's repositories with their
+total size and version count, and per repository each version — the commit
+("current" when it is the repository's default branch), when it was fetched,
+its size, and the complete variants it holds — plus a download field (a new
+`OWNER/REPO` and an optional revision, run with splash's bundled Python, its
+output streamed into the window) and remove actions: one version (the blobs
+only it references are deleted, and the repository's `main` ref re-points at
+the newest remaining snapshot — or is removed with the last version) or the
+whole repository.
+
+**AI harness** lists every supported coding harness — Claude Code, Codex,
+pi, omp, Hermes, OpenCode, Copilot CLI, Droid, Grok Build, Kilo, Kimi
+Code, Mastra Code, Qwen Code — and picks one. The installed ones (binary
+on the app's PATH) show where they point now: connected to this splash
+server, at another URL, not configured, or an unreadable config; the rest
+are marked not installed, and Auto Connect is enabled for them once their
+binary is installed. **Auto Connect** writes the
+harness's own persistent configuration (e.g. `~/.codex/config.toml`,
+`~/.claude/settings.json`, `~/.omp/agent/models.yml`,
+`~/.copilot/providers.json`, `~/.qwen/settings.json`, `~/.kimi/config.toml`,
+`~/.grok/config.toml`, `~/.config/kilo/kilo.json`) to the server that is
+serving now — the served model's name, its context window and input
+modalities, under the `local` key (splash's server asks for no key).
+Providers and settings the app doesn't manage are preserved; the harness
+gets the provider name splash's own launcher uses (`splash` on port 8000,
+`splash-<port>` otherwise) and a reconnect replaces the stale entry, so a
+harness points at one server. Hermes gets one profile per server (created
+with `hermes profile create` when missing). Start the harness in a new
+session after connecting. (Harnesses with no persistent custom-provider
+config — Cursor Agent CLI, Devin, Qoder, Antigravity — aren't supported:
+their models run through the vendor's cloud or a wizard-managed catalog.)
 
 Below the splash options, **UI refresh** sets how often the app polls
 `/status` to update the flyout and menu bar: 500 ms, 1 s, 2 s (default), 5 s

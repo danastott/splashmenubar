@@ -4,8 +4,8 @@ import AppKit
 
 /// The app's version from Info.plist: the short version with the build
 /// number in parentheses when it differs ("1.0 (2)"); "?" when the bare
-/// binary runs outside the .app bundle. (Defined here, not in main.swift,
-/// so the test build — which excludes main.swift — still sees it.)
+/// binary runs outside the .app bundle. (Defined here, not in App.swift,
+/// so the test build — which excludes App.swift — still sees it.)
 let appVersion: String = {
     let info = Bundle.main.infoDictionary
     let short = (info?["CFBundleShortVersionString"] as? String) ?? "?"
@@ -124,21 +124,7 @@ final class SettingsModel: ObservableObject {
 
         // Scanning the Hugging Face cache walks and resolves every snapshot
         // file, so keep it off the main thread.
-        let initialModel = config.model
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let scan = SplashModels.scan()
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.modelChoices = SplashModels.catalog + scan.extras
-                self.downloadedSizes = scan.sizes
-                self.scanned = true
-                // The saved model turned out to be a downloaded variant: list it.
-                if self.customModel, self.model == initialModel,
-                   scan.extras.contains(where: { $0.id == initialModel }) {
-                    self.customModel = false
-                }
-            }
-        }
+        rescan()
 
         // Check a typed-in custom id once typing pauses, in the background.
         Publishers.CombineLatest($model, $customModel)
@@ -201,6 +187,27 @@ final class SettingsModel: ObservableObject {
         return .notDownloaded
     }
 
+    /// Runs the background cache scan; call it again after the cache
+    /// changed (e.g. Manage models) so the picker's downloaded list
+    /// refreshes.
+    func rescan() {
+        let initialModel = base.model
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let scan = SplashModels.scan()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.modelChoices = SplashModels.catalog + scan.extras
+                self.downloadedSizes = scan.sizes
+                self.scanned = true
+                // The saved model turned out to be a downloaded variant: list it.
+                if self.customModel, self.model == initialModel,
+                   scan.extras.contains(where: { $0.id == initialModel }) {
+                    self.customModel = false
+                }
+            }
+        }
+    }
+
     /// Restores every field to its default, as `SplashConfig.default`
     /// defines it (blank = splash's own default for that flag).
     func resetToDefaults() {
@@ -236,117 +243,35 @@ final class SettingsModel: ObservableObject {
 /// Form for the `splash serve` command-line parameters.
 struct SettingsView: View {
     @ObservedObject var settings: SettingsModel
+    @ObservedObject var harnesses: HarnessModel
     let onSave: (SplashConfig) -> Void
     let onDismiss: () -> Void
+    let onManageModels: () -> Void
+
+    /// Help text shared by the Model row and the Custom field row.
+    private static let modelHelp = "--model: a supported model, or Custom… for any Hugging Face model as OWNER/REPO[:VARIANT] with the GGUF variant after ':'. Downloaded models are found in the Hugging Face cache; others download on first start, along with their draft."
+
+    /// The config file's path, with the home directory shown as ~.
+    private var configFileDisplay: String {
+        SplashConfig.configURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+    }
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text("splash serve — parameters")
-                .font(.system(size: 13, weight: .semibold))
-            VStack(spacing: 8) {
-                field("Model", help: "--model: a supported model, or Custom… for any Hugging Face model as OWNER/REPO[:VARIANT] with the GGUF variant after ':'. Downloaded models are found in the Hugging Face cache; others download on first start, along with their draft.") {
-                    modelPicker
-                }
-                field("Pin model version", help: "--revision: pin splash to the commit of the model already in the Hugging Face cache, so a new commit on the repository's default branch is not re-downloaded over the copy on disk. Off by default, when splash follows the default branch. With no complete copy in the cache there is no version to pin, so the first start downloads as usual and only restarts after are pinned.") {
-                    Toggle("", isOn: $settings.pinModelVersion)
-                        .frame(width: 160)
-                }
-                field("Port", help: "--port: HTTP port the server listens on (127.0.0.1).") {
-                    VStack(alignment: .leading, spacing: 2) {
-                        TextField("8081", text: $settings.port)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 90)
-                        if let err = settings.portError {
-                            Text("Port \(err)")
-                                .font(.system(size: 10))
-                                .foregroundColor(.orange)
-                        }
-                    }
-                }
-                field("Max memory", help: "--max-memory: Metal memory budget, e.g. 28G. It can only lower the automatic budget. Blank = auto.") {
-                    TextField("auto (e.g. 28G)", text: $settings.maxMemory)
-                        .textFieldStyle(.roundedBorder)
-                }
-                field("Idle release", help: "--idle-release: time without a request before splash frees the model weights and memory, e.g. 30m, 1h; off keeps them loaded. Blank = 10m.") {
-                    TextField("10m default (e.g. off)", text: $settings.idleRelease)
-                        .textFieldStyle(.roundedBorder)
-                }
-                field("Max context", help: "--max-context: context token limit, e.g. 100K or 1M. Past the model's native window (256K) it turns on YaRN, which changes answers, so go higher only when needed. Blank = auto.") {
-                    TextField("auto (e.g. 100K)", text: $settings.maxContext)
-                        .textFieldStyle(.roundedBorder)
-                }
-                field("KV format", help: "--kv-format: storage for the KV cache. int8 (default) uses less memory; bf16 uses more.") {
-                    Picker("", selection: $settings.kvFormat) {
-                        Text("int8 (default)").tag("int8")
-                        Text("bf16").tag("bf16")
-                    }
-                    .frame(width: 160)
-                }
-                field("State format", help: "--state-format: storage for recurrent state. fp32 (default); bf16 halves each state, so memory and the SSD cache hold about twice as many.") {
-                    Picker("", selection: $settings.stateFormat) {
-                        Text("fp32 (default)").tag("fp32")
-                        Text("bf16").tag("bf16")
-                    }
-                    .frame(width: 160)
-                }
-                field("Max cache disk", help: "--max-cache-disk: SSD quota for cached KV pages and states, e.g. 16G; 0 disables the SSD cache. Blank = auto (a quarter of free space, at most 32G).") {
-                    TextField("auto (e.g. 16G; 0 = off)", text: $settings.maxCacheDisk)
-                        .textFieldStyle(.roundedBorder)
-                }
-                field("Language only", help: "--language-only: skip loading vision; image and PDF input is refused. Saves memory and startup time.") {
-                    Toggle("", isOn: $settings.languageOnly)
-                        .frame(width: 160)
-                }
-                field("Disable Neural Engine", help: "--disable-ane: prefill on the GPU alone. By default long prompts on dense models also use the Neural Engine when that's faster.") {
-                    Toggle("", isOn: $settings.disableANE)
-                        .frame(width: 160)
-                }
-                field("Persistent cache", help: "--persistent-cache: keep the SSD prompt cache across restarts, so earlier conversations resume without re-prefilling.") {
-                    Toggle("", isOn: $settings.persistentCache)
-                        .frame(width: 160)
-                }
+        VStack(spacing: 0) {
+            TabView {
+                modelPane
+                    .tabItem { Label("Model", systemImage: "cpu") }
+                harnessPane
+                    .tabItem { Label("AI harness", systemImage: "terminal") }
+                serverPane
+                    .tabItem { Label("Server", systemImage: "server.rack") }
+                appPane
+                    .tabItem { Label("App", systemImage: "gearshape") }
+                aboutPane
+                    .tabItem { Label("About", systemImage: "info.circle") }
             }
-            Divider()
-            field("UI refresh", help: "How often the app polls splash's /status endpoint to update the flyout and the menu bar. Faster is more responsive and costs a little more CPU. Changing only this does not restart the server.") {
-                Picker("", selection: $settings.refreshInterval) {
-                    ForEach(SplashConfig.refreshIntervalChoices, id: \.self) { v in
-                        Text(v < 1 ? "\(Int(v * 1000)) ms" : "\(Int(v)) s" + (v == 2 ? " (default)" : "")).tag(v)
-                    }
-                }
-                .frame(width: 160)
-            }
-            field("Speed graph span", help: "How many minutes of generation the tok/s graph shows. Only time spent generating is sampled, so idle gaps don't count. Changing only this does not restart the server.") {
-                Picker("", selection: $settings.graphMinutes) {
-                    ForEach(SplashConfig.graphMinutesChoices, id: \.self) { m in
-                        Text("\(m) min" + (m == 5 ? " (default)" : "")).tag(m)
-                    }
-                }
-                .frame(width: 160)
-            }
-            field("Auto-restart", help: "If splash exits on its own, start it again after a moment — up to \(SplashProcess.maxAutoRestarts) times in a row before giving up. Pressing Start resets the count; a Stop always wins over it. A crash also gets a notification unless it is being auto-restarted.") {
-                Toggle("", isOn: $settings.autoRestart)
-                    .frame(width: 160)
-            }
-            field("Start 'splash' server on launch", help: "Start the splash server with the model above whenever Splash Menu Bar launches. Off by default: the app opens with the server stopped (a splash already running on the port is still picked up), and you press Start. Changing it does not restart the server.") {
-                Toggle("", isOn: $settings.startServerOnLaunch)
-                    .frame(width: 160)
-            }
-            field("Launch at login", help: "Start Splash Menu Bar when you log in — with Start 'splash' server on launch also on, the splash server comes up without opening the app. Registered as a system login item (System Settings → General → Login Items); changing it does not restart the server.") {
-                Toggle("", isOn: $settings.launchAtLogin)
-                    .frame(width: 160)
-            }
-            field("Appearance", help: "The flyout's (and this window's) color theme: follow the system's dark/light mode, or force one. The preview here updates as you pick; the flyout takes it on Save. Changing only this does not restart the server.") {
-                Picker("", selection: $settings.theme) {
-                    ForEach(UITheme.allCases, id: \.self) { t in
-                        Text(t.label).tag(t)
-                    }
-                }
-                .frame(width: 160)
-            }
-            Text("Changing a splash option restarts the server.")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // One SettingsModel backs every tab, so this bar always acts
+            // on the whole draft, whatever tab is open.
             HStack {
                 Button("Reset to defaults", action: { settings.resetToDefaults() })
                     .help("Set every option to its default. Nothing is saved or restarted until you press Save.")
@@ -359,15 +284,195 @@ struct SettingsView: View {
                     .disabled(!settings.isValid)
                     .help("Save these options to ~/.splashmenubar.json and restart splash with them.")
             }
-            Text("Splash Menu Bar \(appVersion)")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .help("The version of this app (from its bundle).")
+            .padding(12)
         }
-        .padding(16)
-        .frame(width: 440)
+        .frame(width: 560)
         .preferredColorScheme(settings.theme.colorScheme)
+    }
+
+    // MARK: - Panes
+
+    private var modelPane: some View {
+        Form {
+            Section {
+                if settings.customModel {
+                    LabeledContent("Model") {
+                        TextField("OWNER/REPO[:VARIANT]", text: $settings.model)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    .help(Self.modelHelp)
+                    if let err = settings.modelError {
+                        Text("Model \(err)")
+                            .font(.system(size: 10))
+                            .foregroundColor(.orange)
+                    }
+                } else {
+                    modelPicker
+                        .help(Self.modelHelp)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    modelStatus
+                    if let need = settings.selectedModel?.minMemoryGB,
+                       settings.modelMemoryShortfallGB != nil {
+                        Label("Needs about \(need) GB of RAM — this Mac has \(SettingsModel.macMemoryGB) GB, so this model will likely not run here",
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                            .font(.system(size: 10))
+                    }
+                    if !settings.customModel, let about = settings.selectedModel?.about {
+                        Text(about)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                LabeledContent("Model cache") {
+                    Button("Manage…") { onManageModels() }
+                }
+                .help("The Hugging Face cache (~/.cache/huggingface/hub) where splash keeps downloaded models, including the separate versions of a repo it has fetched. Manage lists them, downloads new models, and removes what's no longer wanted.")
+                Toggle("Pin model version", isOn: $settings.pinModelVersion)
+                    .help("--revision: pin splash to the commit of the model already in the Hugging Face cache, so a new commit on the repository's default branch is not re-downloaded over the copy on disk. Off by default, when splash follows the default branch. With no complete copy in the cache there is no version to pin, so the first start downloads as usual and only restarts after are pinned.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var harnessPane: some View {
+        Form {
+            Section {
+                Picker("AI harness", selection: $harnesses.selectedID) {
+                    ForEach(harnesses.supported) { h in
+                        Text(harnesses.installedIDs.contains(h.id)
+                             ? h.name
+                             : "\(h.name) (not installed)")
+                            .tag(Optional(h.id))
+                    }
+                }
+                .labelsHidden()
+                .help("Point a coding harness at the splash server. Auto Connect writes the harness's own configuration, so it uses splash from a terminal too; start it in a new session after connecting. Every supported harness is listed; the uninstalled ones can be connected once their binary is on the PATH.")
+                .onChange(of: harnesses.selectedID) { _ in
+                    harnesses.selectionChanged()
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    harnessStatusLine
+                    HStack(spacing: 8) {
+                        Button(harnesses.busy ? "Connecting…" : "Auto Connect") {
+                            harnesses.connect()
+                        }
+                        .disabled(harnesses.busy || !harnesses.selectedIsInstalled)
+                        if !harnesses.selectedIsInstalled {
+                            Text("Install it to connect it — Auto Connect writes the harness's own configuration.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        } else if let note = harnesses.note {
+                            Text(note)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var serverPane: some View {
+        Form {
+            Section {
+                LabeledContent("Port") {
+                    TextField("8000", text: $settings.port)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 90)
+                }
+                .help("--port: HTTP port the server listens on (127.0.0.1).")
+                if let err = settings.portError {
+                    Text("Port \(err)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                }
+                TextField("Max memory", text: $settings.maxMemory, prompt: Text("auto (e.g. 28G)"))
+                    .help("--max-memory: Metal memory budget, e.g. 28G. It can only lower the automatic budget. Blank = auto.")
+                TextField("Idle release", text: $settings.idleRelease, prompt: Text("10m default (e.g. off)"))
+                    .help("--idle-release: time without a request before splash frees the model weights and memory, e.g. 30m, 1h; off keeps them loaded. Blank = 10m.")
+                TextField("Max context", text: $settings.maxContext, prompt: Text("auto (e.g. 100K)"))
+                    .help("--max-context: context token limit, e.g. 100K or 1M. Past the model's native window (256K) it turns on YaRN, which changes answers, so go higher only when needed. Blank = auto.")
+                Picker("KV format", selection: $settings.kvFormat) {
+                    Text("int8 (default)").tag("int8")
+                    Text("bf16").tag("bf16")
+                }
+                .help("--kv-format: storage for the KV cache. int8 (default) uses less memory; bf16 uses more.")
+                Picker("State format", selection: $settings.stateFormat) {
+                    Text("fp32 (default)").tag("fp32")
+                    Text("bf16").tag("bf16")
+                }
+                .help("--state-format: storage for recurrent state. fp32 (default); bf16 halves each state, so memory and the SSD cache hold about twice as many.")
+                TextField("Max cache disk", text: $settings.maxCacheDisk, prompt: Text("auto (e.g. 16G; 0 = off)"))
+                    .help("--max-cache-disk: SSD quota for cached KV pages and states, e.g. 16G; 0 disables the SSD cache. Blank = auto (a quarter of free space, at most 32G).")
+                Toggle("Language only", isOn: $settings.languageOnly)
+                    .help("--language-only: skip loading vision; image and PDF input is refused. Saves memory and startup time.")
+                Toggle("Disable Neural Engine", isOn: $settings.disableANE)
+                    .help("--disable-ane: prefill on the GPU alone. By default long prompts on dense models also use the Neural Engine when that's faster.")
+                Toggle("Persistent cache", isOn: $settings.persistentCache)
+                    .help("--persistent-cache: keep the SSD prompt cache across restarts, so earlier conversations resume without re-prefilling.")
+            } header: {
+                Text("splash serve — parameters")
+            } footer: {
+                Text("Changing a splash option restarts the server.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var appPane: some View {
+        Form {
+            Section {
+                Picker("UI refresh", selection: $settings.refreshInterval) {
+                    ForEach(SplashConfig.refreshIntervalChoices, id: \.self) { v in
+                        Text(v < 1 ? "\(Int(v * 1000)) ms" : "\(Int(v)) s" + (v == 2 ? " (default)" : "")).tag(v)
+                    }
+                }
+                .help("How often the app polls splash's /status endpoint to update the flyout and the menu bar. Faster is more responsive and costs a little more CPU. Changing only this does not restart the server.")
+                Picker("Speed graph span", selection: $settings.graphMinutes) {
+                    ForEach(SplashConfig.graphMinutesChoices, id: \.self) { m in
+                        Text("\(m) min" + (m == 5 ? " (default)" : "")).tag(m)
+                    }
+                }
+                .help("How many minutes of generation the tok/s graph shows. Only time spent generating is sampled, so idle gaps don't count. Changing only this does not restart the server.")
+                Toggle("Auto-restart", isOn: $settings.autoRestart)
+                    .help("If splash exits on its own, start it again after a moment — up to \(SplashProcess.maxAutoRestarts) times in a row before giving up. Pressing Start resets the count; a Stop always wins over it. A crash also gets a notification unless it is being auto-restarted.")
+                Toggle("Start 'splash' server on launch", isOn: $settings.startServerOnLaunch)
+                    .help("Start the splash server with the model above whenever Splash Menu Bar launches. Off by default: the app opens with the server stopped (a splash already running on the port is still picked up), and you press Start. Changing it does not restart the server.")
+                Toggle("Launch at login", isOn: $settings.launchAtLogin)
+                    .help("Start Splash Menu Bar when you log in — with Start 'splash' server on launch also on, the splash server comes up without opening the app. Registered as a system login item (System Settings → General → Login Items); changing it does not restart the server.")
+                Picker("Appearance", selection: $settings.theme) {
+                    ForEach(UITheme.allCases, id: \.self) { t in
+                        Text(t.label).tag(t)
+                    }
+                }
+                .help("The flyout's (and this window's) color theme: follow the system's dark/light mode, or force one. The preview here updates as you pick; the flyout takes it on Save. Changing only this does not restart the server.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var aboutPane: some View {
+        Form {
+            Section {
+                Text("Splash Menu Bar")
+                    .font(.system(size: 14, weight: .semibold))
+                LabeledContent("Version") {
+                    Text(appVersion)
+                        .textSelection(.enabled)
+                        .help("The version of this app (from its bundle).")
+                }
+                LabeledContent("Config file") {
+                    Text(configFileDisplay)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .formStyle(.grouped)
     }
 
     // MARK: - Model picker
@@ -388,49 +493,24 @@ struct SettingsView: View {
     private var modelPicker: some View {
         let downloaded = settings.modelChoices.filter { settings.downloadedSizes[$0.id] != nil }
         let available = settings.modelChoices.filter { settings.downloadedSizes[$0.id] == nil }
-        return VStack(alignment: .leading, spacing: 4) {
-            Picker("", selection: modelSelection) {
-                if !downloaded.isEmpty {
-                    Section("Downloaded") {
-                        ForEach(downloaded) { m in
-                            Text("\(m.label) — \(Fmt.bytes(Int(settings.downloadedSizes[m.id] ?? 0)))").tag(m.id)
-                        }
+        return Picker("Model", selection: modelSelection) {
+            if !downloaded.isEmpty {
+                Section("Downloaded") {
+                    ForEach(downloaded) { m in
+                        Text("\(m.label) — \(Fmt.bytes(Int(settings.downloadedSizes[m.id] ?? 0)))").tag(m.id)
                     }
                 }
-                if !available.isEmpty {
-                    Section("Not downloaded") {
-                        ForEach(available) { m in
-                            Text(m.label + (m.downloadGB.map { " · \($0) GB download" } ?? ""))
-                                .tag(m.id)
-                        }
+            }
+            if !available.isEmpty {
+                Section("Not downloaded") {
+                    ForEach(available) { m in
+                        Text(m.label + (m.downloadGB.map { " · \($0) GB download" } ?? ""))
+                            .tag(m.id)
                     }
                 }
-                Divider()
-                Text("Custom…").tag(SettingsModel.customTag)
             }
-            .labelsHidden()
-            if settings.customModel {
-                TextField("OWNER/REPO[:VARIANT]", text: $settings.model)
-                    .textFieldStyle(.roundedBorder)
-                if let err = settings.modelError {
-                    Text("Model \(err)")
-                        .font(.system(size: 10))
-                        .foregroundColor(.orange)
-                }
-            }
-            modelStatus
-            if let need = settings.selectedModel?.minMemoryGB,
-               settings.modelMemoryShortfallGB != nil {
-                Label("Needs about \(need) GB of RAM — this Mac has \(SettingsModel.macMemoryGB) GB, so this model will likely not run here",
-                      systemImage: "exclamationmark.triangle")
-                    .foregroundColor(.orange)
-                    .font(.system(size: 10))
-            }
-            if !settings.customModel, let about = settings.selectedModel?.about {
-                Text(about)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
+            Divider()
+            Text("Custom…").tag(SettingsModel.customTag)
         }
     }
 
@@ -471,15 +551,68 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func field<Content: View>(_ label: String, help: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(label)
-                .font(.system(size: 12))
-                .frame(width: 150, alignment: .leading)
-            content()
+    private var harnessStatusLine: some View {
+        switch harnesses.status {
+        case .connected:
+            Label("Connected to this splash server", systemImage: "checkmark.circle")
+                .foregroundColor(.green)
+                .font(.system(size: 11))
+        case .elsewhere(let url):
+            Label("Points at \(url)", systemImage: "arrow.turn.down.right")
+                .foregroundColor(.orange)
+                .font(.system(size: 11))
+                .textSelection(.enabled)
+        case .notInstalled:
+            Label("Not installed", systemImage: "circle.dashed")
+                .foregroundColor(.secondary)
+                .font(.system(size: 11))
+        case .notConfigured:
+            Label("Not configured", systemImage: "circle.dashed")
+                .foregroundColor(.secondary)
+                .font(.system(size: 11))
+        case .unreadable(let reason):
+            Label("Config unreadable: \(reason)", systemImage: "exclamationmark.triangle")
+                .foregroundColor(.orange)
+                .font(.system(size: 11))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .help(help)
+    }
+}
+
+/// Root of the standard Settings scene. The form state is owned by the
+/// app delegate (its `settingsModel` / `harnesses` accessors) so it
+/// survives the window closing and other code can reach it; this view
+/// just binds to it and routes actions back to the delegate.
+struct SettingsSceneView: View {
+    @ObservedObject private var settings: SettingsModel
+    @ObservedObject private var harnesses: HarnessModel
+
+    init() {
+        let delegate = AppDelegate.shared
+        let settings = delegate?.settingsModel ?? SettingsModel(config: SplashConfig.load().config)
+        let harnesses = delegate?.harnesses ?? HarnessModel(connectionProvider: { nil })
+        _settings = ObservedObject(wrappedValue: settings)
+        _harnesses = ObservedObject(wrappedValue: harnesses)
+    }
+
+    var body: some View {
+        SettingsView(
+            settings: settings,
+            harnesses: harnesses,
+            onSave: { saved in
+                AppDelegate.shared?.applySettings(saved)
+            },
+            onDismiss: {
+                AppDelegate.shared?.dismissSettings()
+            },
+            onManageModels: {
+                AppDelegate.shared?.openManageModels()
+            }
+        )
+        .onAppear {
+            // A harness (or a model) may have been installed or downloaded
+            // since the window was last open; refresh both lists.
+            harnesses.rescan()
+            settings.rescan()
+        }
     }
 }

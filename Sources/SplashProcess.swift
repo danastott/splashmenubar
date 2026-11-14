@@ -127,7 +127,7 @@ struct SplashConfig: Codable, Equatable {
 
     static let `default` = SplashConfig(
         model: "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M",
-        port: 8081,
+        port: 8000,
         maxMemory: nil,
         idleRelease: nil,
         maxContext: nil,

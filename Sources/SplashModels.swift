@@ -229,7 +229,7 @@ enum SplashModels {
 
     /// Files in a snapshot whose symlinked blob actually exists, with paths
     /// relative to the snapshot and the blob's size.
-    private static func files(in snapshot: URL) -> [(path: String, size: Int64)] {
+    static func files(in snapshot: URL) -> [(path: String, size: Int64)] {
         guard let e = FileManager.default.enumerator(at: snapshot, includingPropertiesForKeys: nil)
         else { return [] }
         var out: [(String, Int64)] = []
@@ -281,7 +281,7 @@ enum SplashModels {
     }
 
     /// Shard names from model.safetensors.index.json, if there is one.
-    private static func indexShards(_ snapshot: URL) -> Set<String>? {
+    static func indexShards(_ snapshot: URL) -> Set<String>? {
         let index = snapshot.appendingPathComponent("model.safetensors.index.json")
         guard let data = try? Data(contentsOf: index),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

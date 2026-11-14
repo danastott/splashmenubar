@@ -25,6 +25,19 @@ enum SplashInstaller {
     static var isSplashInstalled: Bool { locate("splash") != nil }
     static var brewPath: String? { locate("brew") }
 
+    /// The python3 interpreter bundled with the installed splash (next to
+    /// its libexec), nil when splash isn't installed or the interpreter is
+    /// missing. Runs no process.
+    static func pythonPath() -> String? {
+        guard let splash = locate("splash") else { return nil }
+        let fm = FileManager.default
+        let resolved = URL(fileURLWithPath: splash).resolvingSymlinksInPath()
+        // <prefix>/bin/splash → <prefix>/libexec/python/bin/python3.
+        let prefix = resolved.deletingLastPathComponent().deletingLastPathComponent()
+        let candidate = prefix.appendingPathComponent("libexec/python/bin/python3")
+        return fm.fileExists(atPath: candidate.path) ? candidate.path : nil
+    }
+
     /// Version of the `splash` on the PATH ("Splash 1.6.0" → "1.6.0");
     /// nil when splash isn't installed. Runs a process: keep it off the
     /// main thread.

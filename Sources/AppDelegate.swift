@@ -27,8 +27,19 @@ private struct MenuBarStatus: Equatable {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// SwiftUI's @NSApplicationDelegateAdaptor keeps this object out of
+    /// NSApp.delegate (a private proxy stands in for it), so the scene's
+    /// views reach the delegate through this reference instead.
+    static weak var shared: AppDelegate?
+
+    override init() {
+        super.init()
+        Self.shared = self
+    }
+
     private var statusItem: NSStatusItem!
     private let store = MetricsStore()
+
     private let proc = SplashProcess()
     private var config = SplashConfig.default
     private var cancellables = Set<AnyCancellable>()
@@ -40,7 +51,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var localMonitor: Any?
     private var globalMonitor: Any?
 
-    private var settingsWindow: NSWindow?
+    // The settings form state lives here (not in the Settings scene's
+    // view) so it survives the window closing and reopening, and other
+    // app code can reach it (the cache rescan after Manage models
+    // closes). Lazily created on first access — ⌘, reaches the scene
+    // without going through openSettings().
+    private var _settingsModel: SettingsModel?
+    var settingsModel: SettingsModel {
+        if let m = _settingsModel { return m }
+        let m = SettingsModel(config: config)
+        _settingsModel = m
+        return m
+    }
+    private var _harnesses: HarnessModel?
+    var harnesses: HarnessModel {
+        if let m = _harnesses { return m }
+        // Auto Connect needs what the server reports about itself — the
+        // served model's name, its context window and what it accepts —
+        // as the last /status said (a stopped server keeps its last one).
+        let m = HarnessModel(connectionProvider: { [weak self] in
+            guard let self,
+                  let model = self.store.modelFromStatus, !model.isEmpty,
+                  let context = self.store.maxContextTokens, context > 0
+            else { return nil }
+            return HarnessConnection(port: self.config.port,
+                                      model: model,
+                                      context: context,
+                                      modalities: self.store.inputModalities)
+        })
+        _harnesses = m
+        return m
+    }
+    private var modelManageWindow: NSWindow?
     private var installWindow: NSWindow?
     private var installModel: InstallModel?
     private var pollTask: Task<Void, Never>?
@@ -979,89 +1021,130 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Settings window
 
+    /// Opens the standard Settings scene's window. The app is an
+    /// accessory, so it must re-activate or the window comes back behind
+    /// the frontmost app's windows.
     private func openSettings() {
-        if let w = settingsWindow {
+        NSApp.activate(ignoringOtherApps: true)
+        // The Settings scene installs a "Settings…" item (⌘,) in the app
+        // menu whose action is SwiftUI's internal menuAction: — perform
+        // the item itself rather than guessing a selector.
+        if let appMenu = NSApp.mainMenu?.item(at: 0)?.submenu,
+           let item = appMenu.items.first(where: {
+               $0.keyEquivalent == ","
+               && $0.keyEquivalentModifierMask == .command
+               && $0.action != nil
+           }) {
+            NSApp.sendAction(item.action!, to: item.target, from: item)
+            return
+        }
+        // Older systems wire the item to a real selector instead.
+        for sel in [Selector(("showSettingsWindow:")), Selector(("showPreferencesWindow:"))]
+        where NSApp.sendAction(sel, to: nil, from: nil) { break }
+    }
+
+    /// The standard Settings scene's window: the app's only non-panel,
+    /// non-status-bar window (the tabbed title is the current tab's name,
+    /// so the window can't be found by its title).
+    private func settingsWindow() -> NSWindow? {
+        NSApp.windows.first { w in
+            !(w is NSPanel)
+            && !w.className.contains("StatusBar")
+        }
+    }
+
+    /// Closes the settings window (Save and Cancel both end here; the
+    /// title bar's close button goes through windowWillClose directly).
+    func dismissSettings() {
+        (settingsWindow() ?? NSApp.keyWindow)?.performClose(nil)
+    }
+
+    /// What Save does: validate the system-side change, then persist the
+    /// new config and restart splash if any serve option changed.
+    func applySettings(_ saved: SplashConfig) {
+        var new = saved
+        // The login item is synced with the system before saving, so
+        // a failed change is never persisted as the preference.
+        if new.launchAtLogin != config.launchAtLogin,
+           let error = syncLaunchAtLogin(new.launchAtLogin) {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn't \(new.launchAtLogin ? "enable" : "turn off") launch at login"
+            alert.informativeText = error.localizedDescription
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            return   // the settings window stays open
+        }
+        // The flyout's live pin state and position win over the
+        // form's copy (the panel may have been moved while open),
+        // and its gauge colors win over the form's (a right-click
+        // pick may have happened while the form was open) — unless
+        // "Reset to defaults" cleared them.
+        new.panelPinned = config.panelPinned
+        new.pinnedPanelTopLeft = config.pinnedPanelTopLeft
+        if !settingsModel.resetToDefaultsApplied {
+            new.gaugeColors = store.gaugeColors
+        }
+        // Saving Settings is the step the setup tip asks for.
+        store.showSetupTip = false
+        if new != config {
+            // Only splash options restart the server; the refresh
+            // interval is the app's own and applies on the next poll.
+            let serverChanged = new.serveArguments != config.serveArguments
+            config = new
+            if !new.save() {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Couldn't save settings"
+                alert.informativeText = "The changes apply for this session, but the config file couldn't be written: "
+                    + (new.saveError ?? "unknown error")
+                    + ". They'll be lost when the app quits."
+                alert.addButton(withTitle: "OK")
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+            if serverChanged {
+                store.resetForRestart()
+                store.serverPort = nil   // ours restarts on the configured port
+                proc.restart(with: new)
+            } else {
+                // Wake the poll loop now instead of after the old interval.
+                startPolling()
+            }
+            // The flyout holds a copy of the config; a pinned one stays
+            // open, so rebuild it with the new settings in place.
+            rebuildPanelIfVisible()
+        }
+        dismissSettings()
+    }
+
+    // MARK: - Manage models window
+
+    func openManageModels() {
+        if let w = modelManageWindow {
+            NSApp.activate(ignoringOtherApps: true)
             w.makeKeyAndOrderFront(nil)
             return
         }
-        let settings = SettingsModel(config: config)
-        let view = SettingsView(
-            settings: settings,
-            onSave: { [weak self] saved in
-                guard let self else { return }
-                var new = saved
-                // The login item is synced with the system before saving, so
-                // a failed change is never persisted as the preference.
-                if new.launchAtLogin != self.config.launchAtLogin,
-                   let error = self.syncLaunchAtLogin(new.launchAtLogin) {
-                    let alert = NSAlert()
-                    alert.alertStyle = .warning
-                    alert.messageText = "Couldn't \(new.launchAtLogin ? "enable" : "turn off") launch at login"
-                    alert.informativeText = error.localizedDescription
-                    NSApp.activate(ignoringOtherApps: true)
-                    alert.runModal()
-                    return   // the settings window stays open
-                }
-                // The flyout's live pin state and position win over the
-                // form's copy (the panel may have been moved while open),
-                // and its gauge colors win over the form's (a right-click
-                // pick may have happened while the form was open) — unless
-                // "Reset to defaults" cleared them.
-                new.panelPinned = self.config.panelPinned
-                new.pinnedPanelTopLeft = self.config.pinnedPanelTopLeft
-                if !settings.resetToDefaultsApplied {
-                    new.gaugeColors = self.store.gaugeColors
-                }
-                // Saving Settings is the step the setup tip asks for.
-                self.store.showSetupTip = false
-                if new != self.config {
-                    // Only splash options restart the server; the refresh
-                    // interval is the app's own and applies on the next poll.
-                    let serverChanged = new.serveArguments != self.config.serveArguments
-                    self.config = new
-                    if !new.save() {
-                        let alert = NSAlert()
-                        alert.alertStyle = .warning
-                        alert.messageText = "Couldn't save settings"
-                        alert.informativeText = "The changes apply for this session, but the config file couldn't be written: "
-                            + (new.saveError ?? "unknown error")
-                            + ". They'll be lost when the app quits."
-                        alert.addButton(withTitle: "OK")
-                        NSApp.activate(ignoringOtherApps: true)
-                        alert.runModal()
-                    }
-                    if serverChanged {
-                        self.store.resetForRestart()
-                        self.store.serverPort = nil   // ours restarts on the configured port
-                        self.proc.restart(with: new)
-                    } else {
-                        // Wake the poll loop now instead of after the old interval.
-                        self.startPolling()
-                    }
-                    // The flyout holds a copy of the config; a pinned one stays
-                    // open, so rebuild it with the new settings in place.
-                    self.rebuildPanelIfVisible()
-                }
-                self.closeSettings()
-            },
-            onDismiss: { [weak self] in
-                self?.closeSettings()
-            }
-        )
+        let model = ModelManageModel()
+        model.rescan()
+        let view = ModelManageView(model: model) { [weak self] in
+            self?.closeModelManageWindow()
+        }
         let w = NSWindow(contentViewController: NSHostingController(rootView: view))
-        w.title = "Splash Menu Bar — Settings"
+        w.title = "Splash Menu Bar — Manage models"
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
         w.delegate = self
         w.center()
-        settingsWindow = w
+        modelManageWindow = w
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
     }
 
-    private func closeSettings() {
-        settingsWindow?.close()
-        settingsWindow = nil
+    private func closeModelManageWindow() {
+        modelManageWindow?.close()
+        modelManageWindow = nil
     }
 
     /// Rebuilds an open flyout (e.g. after Settings changed), keeping a
@@ -1090,9 +1173,18 @@ extension AppDelegate: NSWindowDelegate {
             installModel = nil
             return
         }
-        guard w === settingsWindow else { return }
-        settingsWindow = nil
-        reopenPanel()
+        if w === modelManageWindow {
+            modelManageWindow = nil
+            // The cache may have changed; refresh the picker's list.
+            settingsModel.rescan()
+            return
+        }
+        // The standard Settings scene's window (tabbed — its title is the
+        // current tab's name, not "<App> Settings"): close it and the
+        // flyout it replaced.
+        if !(w is NSPanel) && !w.className.contains("StatusBar") {
+            reopenPanel()
+        }
     }
 }
 

@@ -282,7 +282,7 @@ final class SplashConfigTests: XCTestCase {
                 file: "Qwen3.8-27B-UD-Q4_K_M.gguf")
             XCTAssertEqual(c.serveArguments, [
                 "splash", "serve", "--model", "owner/repo:UD-Q4_K_M",
-                "--port", "8081", "--revision", commit,
+                "--port", "8000", "--revision", commit,
             ])
 
             // An incomplete variant pins nothing: only part 1 of 3.
