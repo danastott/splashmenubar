@@ -31,6 +31,11 @@ $(APP).app: $(BIN) Info.plist Resources/AppIcon.icns
 	@cp $(BIN) $(APP).app/Contents/MacOS/$(APP)
 	@cp Resources/AppIcon.icns $(APP).app/Contents/Resources/AppIcon.icns
 	@cp Info.plist $(APP).app/Contents/Info.plist
+	# Ad-hoc sign the bundle: the linker's ad-hoc signature on the bare
+	# binary leaves the bundle unsigned, and macOS calls a quarantined
+	# app in that state "damaged" (unbypassable) instead of the usual
+	# unsigned-developer prompt (right-click > Open).
+	@codesign --force --sign - $(APP).app
 	@echo "Built $(APP).app"
 
 run: $(APP).app
