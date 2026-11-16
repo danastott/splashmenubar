@@ -198,6 +198,19 @@ make release  # zips the .app as SplashMenuBar-<version>.zip and prints its sha2
 make clean
 ```
 
+## Releasing
+
+The Homebrew Cask in [danastott/homebrew-tap](https://github.com/danastott/homebrew-tap) (`Casks/splashmenubar.rb`) and the app's own update check both read this repository's GitHub releases, so a release is:
+
+1. Bump and commit the version: `make version VERSION=1.1.0` (commit message "Splash Menu Bar: release 1.1.0").
+2. `make release` — builds, zips the app as `SplashMenuBar-1.1.0.zip` and prints its sha256.
+3. Update the cask in the tap — `version` and `sha256` — and push. Before step 4, so the cask already has the new version by the time the app's update card can point at it.
+4. Create the release with the zip, and note what's new:
+   ```sh
+   gh release create v1.1.0 SplashMenuBar-1.1.0.zip --title "Splash Menu Bar 1.1.0"
+   ```
+   (open the release on GitHub afterwards to edit the notes)
+
 ## Settings
 
 Open the gear icon in the flyout (or press ⌘, after focusing it). The dialog
