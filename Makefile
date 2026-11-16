@@ -2,6 +2,11 @@ APP        = SplashMenuBar
 BIN        = build/$(APP)
 SWIFTC     = swiftc
 FLAGS      = -O
+# The cask's floor, regardless of the build machine's OS: without an
+# explicit target, swiftc stamps minos with the build machine's version
+# and the app won't launch on older macOS ("can't use this version of the
+# application ... with this version of macOS").
+TARGET     = $(shell uname -m)-apple-macosx13.0
 SOURCES    = $(wildcard Sources/*.swift)
 
 # Tests link Xcode's XCTest (the Command Line Tools don't ship it), so they
@@ -18,7 +23,7 @@ all: $(APP).app
 
 $(BIN): $(SOURCES)
 	@mkdir -p build
-	$(SWIFTC) $(FLAGS) -o $@ $(SOURCES) -framework AppKit -framework SwiftUI -framework IOKit
+	$(SWIFTC) $(FLAGS) -target $(TARGET) -o $@ $(SOURCES) -framework AppKit -framework SwiftUI -framework IOKit
 
 $(APP).app: $(BIN) Info.plist Resources/AppIcon.icns
 	@rm -rf $(APP).app
@@ -34,12 +39,12 @@ run: $(APP).app
 test: $(SOURCES) $(TESTSRC)
 	@rm -rf build/test $(TESTBUNDLE)
 	@mkdir -p build/test $(TESTBUNDLE)/Contents/MacOS
-	$(SWIFTC) -module-name $(APP) -enable-testing -emit-library \
+	$(SWIFTC) -target $(TARGET) -module-name $(APP) -enable-testing -emit-library \
 	    -emit-module -emit-module-path build/test/$(APP).swiftmodule \
 	    -o $(TESTLIB) $(filter-out Sources/App.swift,$(SOURCES)) \
 	    -framework AppKit -framework SwiftUI -framework IOKit \
 	    -Xlinker -install_name -Xlinker @rpath/lib$(APP).dylib
-	$(SWIFTC) -module-name $(APP)Tests -emit-library -o build/test/$(APP)Tests.dylib $(TESTSRC) \
+	$(SWIFTC) -target $(TARGET) -module-name $(APP)Tests -emit-library -o build/test/$(APP)Tests.dylib $(TESTSRC) \
 	    -I build/test -L build/test -l$(APP) \
 	    -F $(XCTEST_FW) -framework XCTest \
 	    -I $(XCTEST_LIB) -L $(XCTEST_LIB) -lXCTestSwiftSupport \

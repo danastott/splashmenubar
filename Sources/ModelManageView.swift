@@ -360,7 +360,7 @@ struct ModelManageView: View {
                         .frame(height: 90)
                         .background(Color(nsColor: .textBackgroundColor))
                         .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
-                        .onChange(of: model.downloadOutput) {
+                        .onChange(of: model.downloadOutput) { _ in
                             reader.scrollTo("log", anchor: .bottom)
                         }
                     }

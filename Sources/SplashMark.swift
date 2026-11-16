@@ -48,12 +48,14 @@ struct SplashMark: Shape {
         let stroke = StrokeStyle(lineWidth: 76, lineCap: .round)
         var mark = Self.surface.strokedPath(stroke)
         // The drops come as the arcs reach their full height.
+        // addPath, not union (macOS 14+): the fill is nonzero-winding, so
+        // the added subpaths render identically.
         let drop = min(max((spread - 0.75) / 0.25, 0), 1)
         for (arc, center, radius) in Self.arcs {
-            mark = mark.union(arc.trimmedPath(from: 0, to: spread).strokedPath(stroke))
+            mark.addPath(arc.trimmedPath(from: 0, to: spread).strokedPath(stroke))
             if drop > 0 {
                 let r = radius * drop
-                mark = mark.union(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: 2 * r, height: 2 * r)))
+                mark.addPath(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: 2 * r, height: 2 * r)))
             }
         }
         // Placed as the icon's pose fits rect, centred.
@@ -68,8 +70,10 @@ struct SplashMark: Shape {
     /// serves.
     static func menuBarImage(serving: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 20, height: 16), flipped: true) { rect in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
             NSColor.black.withAlphaComponent(serving ? 1 : 0.45).setFill()
-            NSBezierPath(cgPath: SplashMark().path(in: rect.insetBy(dx: 1, dy: 1)).cgPath).fill()
+            ctx.addPath(SplashMark().path(in: rect.insetBy(dx: 1, dy: 1)).cgPath)
+            ctx.fillPath()
             return true
         }
         image.isTemplate = true

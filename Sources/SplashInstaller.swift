@@ -293,7 +293,7 @@ struct InstallView: View {
                 }
                 .background(Color(nsColor: .textBackgroundColor))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
-                .onChange(of: model.output) {
+                .onChange(of: model.output) { _ in
                     reader.scrollTo("log", anchor: .bottom)
                 }
             }

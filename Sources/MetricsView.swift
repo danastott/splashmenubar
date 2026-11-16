@@ -527,20 +527,14 @@ struct MetricsView: View {
         return Sparkline.axis(for: peak).max
     }
 
-    /// "of N": what a full tok/s ring is, so the ring's size can be read.
-    private var tpsScaleDetail: String? {
-        store.gaugeTokensPerSecond.map { _ in "of \(Sparkline.label(tpsScale))" }
-    }
-
     private var gauges: some View {
         HStack(spacing: 12) {
             RingGauge(
                 value: store.gaugeTokensPerSecond.map { min($0 / tpsScale, 1) },
                 color: store.gaugeColor(id: "tok", default: .blue),
                 center: Fmt.double(store.gaugeTokensPerSecond),
-                detail: tpsScaleDetail,
                 caption: "tok/s",
-                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. The ring auto-scales to the speed graph's window: full ring = a round number at or above the highest tok/s it shows (the graph's top gridline), so 180 tok/s reads instead of pinning the ring. Below the value: what a full ring is. Right-click to pick the ring's color.",
+                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. The ring auto-scales to the speed graph's window: full ring = a round number at or above the highest tok/s it shows (the graph's top gridline), so 180 tok/s reads instead of pinning the ring. Right-click to pick the ring's color.",
                 onOpenColorPanel: { onOpenGaugeColorPanel?("tok") }
             )
             RingGauge(
