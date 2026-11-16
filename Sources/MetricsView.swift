@@ -527,14 +527,23 @@ struct MetricsView: View {
         return Sparkline.axis(for: peak).max
     }
 
+    /// Average decode speed of the samples the speed graph shows — the same
+    /// window as the graph's dotted average line.
+    var tpsAverage: Double? {
+        let vals = Array(store.tpsHistory.suffix(config.graphSampleWindow))
+        guard !vals.isEmpty else { return nil }
+        return vals.reduce(0, +) / Double(vals.count)
+    }
+
     private var gauges: some View {
         HStack(spacing: 12) {
             RingGauge(
                 value: store.gaugeTokensPerSecond.map { min($0 / tpsScale, 1) },
                 color: store.gaugeColor(id: "tok", default: .blue),
                 center: Fmt.double(store.gaugeTokensPerSecond),
+                detail: tpsAverage.map { Fmt.double($0) },
                 caption: "tok/s",
-                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. The ring auto-scales to the speed graph's window: full ring = a round number at or above the highest tok/s it shows (the graph's top gridline), so 180 tok/s reads instead of pinning the ring. Right-click to pick the ring's color.",
+                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. The ring auto-scales to the speed graph's window: full ring = a round number at or above the highest tok/s it shows (the graph's top gridline), so 180 tok/s reads instead of pinning the ring. Below the value: the average of the samples the speed graph shows (its dotted line). Right-click to pick the ring's color.",
                 onOpenColorPanel: { onOpenGaugeColorPanel?("tok") }
             )
             RingGauge(

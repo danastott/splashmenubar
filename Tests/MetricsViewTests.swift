@@ -79,6 +79,20 @@ final class MetricsViewTests: XCTestCase {
         XCTAssertEqual(view(store).tpsScale, 1)
     }
 
+    func testTokGaugeAverageIsWindowAverage() {
+        let store = makeStore()
+        XCTAssertNil(view(store).tpsAverage, "no samples: no average yet")
+        store.tpsHistory = [4, 8]
+        XCTAssertEqual(view(store).tpsAverage, 6)
+    }
+
+    func testTokGaugeAverageIgnoresSamplesOutsideWindow() {
+        let store = makeStore()
+        // The default window is 150 samples; the oldest outlier is out of it.
+        store.tpsHistory = [999] + Array(repeating: 40.0, count: 150)
+        XCTAssertEqual(view(store).tpsAverage, 40)
+    }
+
     func testAppUpdateAvailableOnlyForNewerReleases() {
         let store = makeStore()
         store.appInstalledVersion = "1.0.3"
