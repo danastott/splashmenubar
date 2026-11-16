@@ -212,6 +212,23 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertEqual(m.asConfig.serveArguments, SplashConfig.default.serveArguments)
     }
 
+    /// The settings form is built before applicationDidFinishLaunching
+    /// (the Settings scene installs it during launch), so it must show the
+    /// saved values — not the defaults, which a Save would write back over
+    /// the file.
+    func testSettingsModelBuiltFromSavedConfig() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("splashmb-cfg-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        SplashConfig.configURLOverride = dir.appendingPathComponent(".splashmenubar.json")
+        defer { SplashConfig.configURLOverride = nil }
+        var c = SplashConfig.default
+        c.port = 8081
+        try JSONEncoder().encode(c).write(to: SplashConfig.configURL)
+        XCTAssertEqual(AppDelegate().settingsModel.port, "8081")
+    }
+
     /// Discovery and Stop only treat real splash command lines as splash.
     func testSplashCommandLineMatching() {
         XCTAssertTrue(SplashProcess.isSplashCommandLine(

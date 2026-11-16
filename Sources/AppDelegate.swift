@@ -35,13 +35,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     override init() {
         super.init()
         Self.shared = self
+        // Load the saved settings before anything else (not in
+        // applicationDidFinishLaunching): the Settings scene's view — and
+        // with it the settings form — can be built while the scene installs
+        // its menu, before that runs. A form built from the default config
+        // would show defaults instead of the saved values, and a Save would
+        // write the defaults back over the file.
+        let loaded = SplashConfig.load()
+        config = loaded.config
+        configLoadWarning = loaded.warning
     }
 
     private var statusItem: NSStatusItem!
     private let store = MetricsStore()
 
     private let proc = SplashProcess()
+    /// The default stands in only until init loads the saved config.
     private var config = SplashConfig.default
+    /// Why the defaults are in use (the saved file couldn't be read);
+    /// applicationDidFinishLaunching shows it.
+    private var configLoadWarning: String?
     private var cancellables = Set<AnyCancellable>()
 
     private var panel: MetricsPanel?
@@ -96,10 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // No settings file yet: this is the app's first launch.
         let firstLaunch = !FileManager.default.fileExists(atPath: SplashConfig.configURL.path)
-        let loaded = SplashConfig.load()
-        config = loaded.config
         store.gaugeColors = config.gaugeColors
-        if let warning = loaded.warning {
+        if let warning = configLoadWarning {
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = "Couldn't read saved settings"
@@ -1209,6 +1220,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.serverPort = nil   // ours restarts on the configured port
                 proc.restart(with: new)
             } else {
+                // App-side options only: the running server keeps running,
+                // but the next start (an auto-restart included) reads them.
+                proc.updateConfig(new)
                 // Wake the poll loop now instead of after the old interval.
                 startPolling()
             }

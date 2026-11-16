@@ -381,7 +381,10 @@ struct SettingsView: View {
         Form {
             Section {
                 LabeledContent("Port") {
-                    TextField("8000", text: $settings.port)
+                    // An explicit prompt, not a title: a title hoists out of
+                    // the LabeledContent as a second gray "8000" beside the
+                    // field (read as the remembered value).
+                    TextField("", text: $settings.port, prompt: Text("8000"))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 90)
                 }

@@ -429,6 +429,14 @@ final class SplashProcess {
         setState(.running)
     }
 
+    /// Store the config for the next start — an auto-restart included —
+    /// without touching a running child: app-side options (auto-restart,
+    /// the refresh interval) change without a server restart, but a later
+    /// auto-restart must read the new values.
+    func updateConfig(_ config: SplashConfig) {
+        lastConfig = config
+    }
+
     /// Schedules an auto-restart, first re-checking the port: when a splash
     /// we didn't start is serving it, the child died with "address in use"
     /// and spawning would only crash-loop behind the healthy external
