@@ -13,6 +13,16 @@ With [Homebrew](https://brew.sh):
 brew install danastott/tap/splashmenubar
 ```
 
+To update to a newer release:
+
+```sh
+brew update
+brew upgrade --cask splashmenubar
+```
+
+or press **Update App** on the flyout's update card, which runs the same
+commands.
+
 Apple silicon, macOS 13.0 or later. The app is unsigned — for use on your
 own machine. Or build from source: [`make`](#build).
 
