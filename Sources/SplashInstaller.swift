@@ -109,24 +109,68 @@ final class InstallModel: ObservableObject {
     /// How long without output counts as a stall.
     private let stallAfter: TimeInterval = 5 * 60
 
-    /// The command the window shows ($ line, Copy Command).
-    var commandLine: String = SplashInstaller.installCommand
-    /// The run is a `brew upgrade` of an existing install (wording and
-    /// success check differ from a first install).
-    var isUpgrade = false
+    /// What the window is running; drives the wording and the success
+    /// check.
+    enum Job: Equatable {
+        case installSplash
+        case upgradeSplash
+        case updateApp
+    }
+    var job: Job = .installSplash
 
-    /// Runs `brew install` (or `brew upgrade` for an existing install) with
-    /// stdin closed so it can never block on a prompt. Install additionally
-    /// requires `splash` on the PATH at the end; a clean upgrade exit
-    /// suffices.
-    func start(brew: String, upgrade: Bool = false) {
-        isUpgrade = upgrade
-        let command = upgrade ? "upgrade" : "install"
-        commandLine = "brew \(command) \(SplashInstaller.formula)"
+    /// The command(s) the window shows ($ line, Copy Command).
+    var commandLine: String = SplashInstaller.installCommand
+
+    var runningTitle: String {
+        switch job {
+        case .installSplash: return "Installing splash with Homebrew…"
+        case .upgradeSplash: return "Updating splash with Homebrew…"
+        case .updateApp: return "Updating Splash Menu Bar with Homebrew…"
+        }
+    }
+
+    var doneTitle: String {
+        switch job {
+        case .installSplash: return "splash is installed"
+        case .upgradeSplash: return "splash is updated"
+        case .updateApp: return "Splash Menu Bar is updated"
+        }
+    }
+
+    /// The brew commands still to run, after the one launched (head = next).
+    private var pendingCommands: [[String]] = []
+
+    /// Runs the job's brew command(s) with stdin closed so they can never
+    /// block on a prompt. Install additionally requires `splash` on the
+    /// PATH at the end; a clean exit of the last command suffices for the
+    /// rest.
+    func start(brew: String) {
+        let commands: [[String]]
+        switch job {
+        case .installSplash:
+            commands = [["install", SplashInstaller.formula]]
+        case .upgradeSplash:
+            commands = [["upgrade", SplashInstaller.formula]]
+        case .updateApp:
+            commands = AppUpdater.updateCommands
+        }
+        commandLine = commands.map { "brew " + $0.joined(separator: " ") }
+            .joined(separator: " && ")
+        pendingCommands = Array(commands.dropFirst())
+        output = "$ \(commandLine)\n"
+        phase = .running
+        stalled = false
+        lastOutputAt = Date()
+        launch(brew: brew, args: commands[0])
+    }
+
+    /// Spawns one brew invocation; the termination handler starts the next
+    /// pending command or finishes the run.
+    private func launch(brew: String, args: [String]) {
         let p = Process()
         let pipe = Pipe()
         p.executableURL = URL(fileURLWithPath: brew)
-        p.arguments = [command, SplashInstaller.formula]
+        p.arguments = args
         var env = SplashProcess.childEnvironment()
         env["NONINTERACTIVE"] = "1"
         env["HOMEBREW_NO_ENV_HINTS"] = "1"
@@ -156,21 +200,25 @@ final class InstallModel: ObservableObject {
                 self.stopStallTimer()
                 self.proc = nil
                 if self.cancelled {
-                    self.phase = .failed(self.isUpgrade ? "Update cancelled." : "Installation cancelled.")
-                } else if finished.terminationStatus == 0 && (self.isUpgrade || SplashInstaller.isSplashInstalled) {
-                    self.phase = .succeeded
+                    self.phase = .failed(self.job == .installSplash
+                                         ? "Installation cancelled." : "Update cancelled.")
                 } else if finished.terminationStatus == 0 {
-                    self.phase = .failed("Homebrew finished, but `splash` still isn't on the PATH.")
+                    if let next = self.pendingCommands.first {
+                        self.pendingCommands.removeFirst()
+                        self.output += "\n$ brew \(next.joined(separator: " "))\n"
+                        self.launch(brew: brew, args: next)
+                    } else if self.job == .installSplash,
+                              !SplashInstaller.isSplashInstalled {
+                        self.phase = .failed("Homebrew finished, but `splash` still isn't on the PATH.")
+                    } else {
+                        self.phase = .succeeded
+                    }
                 } else {
                     self.phase = .failed("brew exited with status \(finished.terminationStatus).")
                 }
             }
         }
 
-        output = "$ \(commandLine)\n"
-        phase = .running
-        stalled = false
-        lastOutputAt = Date()
         proc = p
         do {
             try p.run()
@@ -216,10 +264,10 @@ struct InstallView: View {
                 switch model.phase {
                 case .running:
                     ProgressView().controlSize(.small)
-                    Text(model.isUpgrade ? "Updating splash with Homebrew…" : "Installing splash with Homebrew…").font(.headline)
+                    Text(model.runningTitle).font(.headline)
                 case .succeeded:
                     Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
-                    Text(model.isUpgrade ? "splash is updated" : "splash is installed").font(.headline)
+                    Text(model.doneTitle).font(.headline)
                 case .failed(let reason):
                     Image(systemName: "xmark.octagon.fill").foregroundColor(.red)
                     Text(reason).font(.headline)
@@ -259,7 +307,7 @@ struct InstallView: View {
                 case .running:
                     Button("Cancel") { model.cancel() }
                 case .succeeded:
-                    Button(model.isUpgrade ? "Done" : "Start Splash") { onFinish(true) }
+                    Button(model.job == .installSplash ? "Start Splash" : "Done") { onFinish(true) }
                         .keyboardShortcut(.defaultAction)
                 case .failed:
                     Button("Close") { onFinish(false) }

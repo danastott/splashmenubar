@@ -5,6 +5,17 @@ and surfaces its live inference metrics. [Splash](https://github.com/incoai/spla
 is incoai's local inference engine for Apple silicon. This app is a companion
 to it, not part of that project.
 
+## Install
+
+With [Homebrew](https://brew.sh):
+
+```sh
+brew install danastott/tap/splashmenubar
+```
+
+Apple silicon, macOS 13.0 or later. The app is unsigned — for use on your
+own machine. Or build from source: [`make`](#build).
+
 ## Screenshots
 
 The flyout while a request is decoding: tok/s, prefill and cache gauges,
@@ -148,11 +159,20 @@ harnesses and Auto Connect; **Server** — the `splash serve` parameters;
   tracks) and compares it with the `splash` installed on the PATH. When a
   newer one exists, the flyout shows an update card — "splash X.Y.Z
   available" (installed version underneath) with an **Update Splash**
-  button. The button asks for confirmation, then runs
+  button asks for confirmation, then runs
   `brew upgrade incoai/tap/splash` in the same progress window as the
   install. Once the upgrade succeeds and a server is running, the app asks
   whether to restart it — a running server keeps using the old binary until
   it is restarted (a stopped server picks the new version up on Start).
+- **App update check**: at launch the app fetches its newest GitHub
+  release and, when one is newer than the running version, the flyout shows
+  an update card — "Splash Menu Bar X.Y.Z available" (installed version
+  underneath) with an **Update App** button. The button asks for
+  confirmation, then runs `brew tap danastott/tap`, `brew update` and
+  `brew upgrade --cask splashmenubar` in the same progress window. Once
+  the upgrade succeeds, the app asks whether to relaunch onto the new
+  version. A copy that wasn't installed through Homebrew is pointed at
+  `brew install danastott/tap/splashmenubar` instead.
 - **AI harness Auto Connect**: the **AI harness** field in Settings lists
   every supported coding harness (Claude Code, Codex, pi, omp, Hermes,
   OpenCode, Copilot CLI, Droid, Grok Build, Kilo, Kimi Code, Mastra Code,
@@ -174,6 +194,7 @@ make          # builds SplashMenuBar.app (needs the Xcode/CLT Swift toolchain)
 make run      # builds and launches
 make test     # runs the unit tests (XCTest; needs a full Xcode, not just the CLT)
 make version VERSION=1.1.0   # sets the app version in Info.plist (build = 110)
+make release  # zips the .app as SplashMenuBar-<version>.zip and prints its sha256 (for the Homebrew Cask)
 make clean
 ```
 

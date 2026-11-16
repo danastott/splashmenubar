@@ -93,6 +93,17 @@ final class MetricsStore: ObservableObject {
         guard let installed = installedVersion, let latest = latestVersion else { return false }
         return SplashVersion.isNewer(latest, over: installed)
     }
+    /// The running app's own version (from the bundle).
+    @Published var appInstalledVersion: String?
+    /// Newest app release the app has seen from GitHub (nil while unknown
+    /// or the check failed).
+    @Published var appLatestVersion: String?
+    /// An app release newer than the running one: the flyout offers an
+    /// update.
+    var appUpdateAvailable: Bool {
+        guard let installed = appInstalledVersion, let latest = appLatestVersion else { return false }
+        return SplashVersion.isNewer(latest, over: installed)
+    }
     /// The server process whose version was last looked up (pids never
     /// repeat), so one running server costs one lookup.
     private var versionCheckedPID: Int?

@@ -2,7 +2,8 @@ import SwiftUI
 import AppKit
 
 enum MenuAction {
-    case start, stop, restart, settings, quit, togglePin, dismissSetupTip, update
+    case start, stop, restart, settings, quit, togglePin, dismissSetupTip, update,
+         updateApp
 }
 
 struct MetricsView: View {
@@ -70,6 +71,9 @@ struct MetricsView: View {
             }
             if store.updateAvailable {
                 updateCard
+            }
+            if store.appUpdateAvailable {
+                appUpdateCard
             }
             gauges
             sectionLabel("DECODE SPEED · TOK/S",
@@ -326,6 +330,31 @@ struct MetricsView: View {
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.1)))
         .help("A newer splash release is available. Update Splash runs brew upgrade for the splash formula; the server restarts only if you confirm it afterwards.")
+    }
+
+    /// An app release newer than the running one: update through Homebrew
+    /// (the button confirms first), then relaunch onto the new version.
+    private var appUpdateCard: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.accentColor)
+                Text("Splash Menu Bar \(store.appLatestVersion ?? "") available")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Button("Update App") { onAction(.updateApp) }
+                    .controlSize(.small)
+                    .help("Confirm and update Splash Menu Bar to \(store.appLatestVersion ?? "the newest version") through Homebrew; the app relaunches afterwards.")
+            }
+            Text("Installed: \(store.appInstalledVersion ?? "?"). The update runs `brew upgrade --cask splashmenubar`.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.accentColor.opacity(0.1)))
+        .help("A newer Splash Menu Bar release is available. Update App runs brew upgrade for the splashmenubar cask; the app relaunches onto it.")
     }
 
     /// A warning while the server is up but its inference engine is not:

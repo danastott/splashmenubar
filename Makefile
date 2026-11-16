@@ -50,6 +50,19 @@ test: $(SOURCES) $(TESTSRC)
 	@printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>CFBundleExecutable</key><string>$(APP)Tests.dylib</string>\n<key>CFBundleIdentifier</key><string>com.danastott.splashmenubar.tests</string>\n<key>CFBundlePackageType</key><string>BNDL</string>\n</dict></plist>\n' > $(TESTBUNDLE)/Contents/Info.plist
 	DEVELOPER_DIR=$(DEV) xcrun xctest $(TESTBUNDLE)
 
+PLISTVER   = $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
+VERSION    ?= $(PLISTVER)
+ZIP        = $(APP)-$(VERSION).zip
+
+# Build, zip the .app as $(APP)-$(VERSION).zip, and print its sha256 (for the
+# Homebrew Cask). VERSION defaults to the Info.plist version. Upload with:
+#   gh release create v$(VERSION) $(ZIP) --title "Splash Menu Bar $(VERSION)"
+release: $(APP).app
+	@test "$(VERSION)" = "$(PLISTVER)" || { echo "VERSION=$(VERSION) does not match Info.plist ($(PLISTVER)); run: make version VERSION=$(VERSION)"; exit 1; }
+	@rm -f $(ZIP)
+	ditto -c -k --sequesterRsrc --keepParent $(APP).app $(ZIP)
+	@shasum -a 256 $(ZIP)
+
 # Set the app version in Info.plist (short version, build = digits only):
 #   make version VERSION=1.1.0   ->   1.1.0 (build 110)
 version:

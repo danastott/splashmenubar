@@ -238,6 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         watchNotificationTriggers()
         checkSplashUpdate()
+        checkAppUpdate()
 
         // Start splash only if the user asked for it in Settings (off by
         // default). First, though, look for a splash that's already running
@@ -726,6 +727,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .update:
             dismissPanel()
             updateSplash()
+        case .updateApp:
+            dismissPanel()
+            updateApp()
         case .dismissSetupTip:
             store.showSetupTip = false
         case .togglePin:
@@ -1016,7 +1020,104 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installWindow = w
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
-        model.start(brew: brew, upgrade: true)
+        model.job = .upgradeSplash
+        model.start(brew: brew)
+    }
+
+    // MARK: - App updates
+
+    /// Compares the running app with the newest GitHub release and stores
+    /// the answer in the flyout state; a newer release shows the app
+    /// update card.
+    private func checkAppUpdate() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let latest = await AppUpdater.fetchLatestVersion()
+            self.store.appInstalledVersion = AppUpdater.currentVersion
+            self.store.appLatestVersion = latest
+        }
+    }
+
+    /// The flyout's "Update App": confirm the upgrade, run it through
+    /// Homebrew, then relaunch the app onto the new version.
+    private func updateApp() {
+        guard store.appUpdateAvailable else { return }
+        let latest = store.appLatestVersion ?? "?"
+        let current = store.appInstalledVersion ?? "?"
+        guard let brew = SplashInstaller.brewPath else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Homebrew not found"
+            alert.informativeText = "The update needs Homebrew to run:\n    \(AppUpdater.updateCommandLine)"
+            alert.addButton(withTitle: "OK")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            return
+        }
+        // A manual copy (not a Homebrew install) can't be upgraded by brew.
+        guard AppUpdater.isInstalledViaHomebrew(brew: brew) else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Not installed through Homebrew"
+            alert.informativeText = "This copy of Splash Menu Bar isn't a Homebrew install, so brew can't update it.\nInstall it once with:\n    \(AppUpdater.installCommand)\nor download the new release from GitHub."
+            alert.addButton(withTitle: "OK")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            return
+        }
+        let commands = AppUpdater.updateCommands
+            .map { "    brew " + $0.joined(separator: " ") }
+            .joined(separator: "\n")
+        guard confirm("Update Splash Menu Bar to \(latest)?",
+                      info: "You have \(current). This runs:\n\(commands)\nA progress window shows what Homebrew is doing; the app relaunches afterwards.",
+                      button: "Update") else { return }
+        runAppUpdate(brew: brew)
+    }
+
+    private func runAppUpdate(brew: String) {
+        let model = InstallModel()
+        model.job = .updateApp
+        let view = InstallView(model: model) { [weak self] updated in
+            guard let self else { return }
+            self.closeInstallWindow()
+            self.store.appLatestVersion = nil
+            guard updated else { return }
+            guard self.confirm("Restart Splash Menu Bar?",
+                               info: "The new version starts now; anything in progress in this one is lost.",
+                               button: "Restart") else { return }
+            self.relaunchApp()
+        }
+        let w = NSWindow(contentViewController: NSHostingController(rootView: view))
+        w.title = "Splash Menu Bar — Update app"
+        w.styleMask = [.titled, .closable]
+        w.isReleasedWhenClosed = false
+        w.delegate = self
+        w.center()
+        installModel = model
+        installWindow = w
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+        model.start(brew: brew)
+    }
+
+    /// brew replaced the bundle in place, so launching the same path runs
+    /// the new version; terminate this instance once it is up.
+    private func relaunchApp() {
+        let url = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
+            DispatchQueue.main.async {
+                if let error {
+                    let alert = NSAlert()
+                    alert.messageText = "Couldn't relaunch Splash Menu Bar"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                    return
+                }
+                NSApp.terminate(nil)
+            }
+        }
     }
 
     // MARK: - Settings window

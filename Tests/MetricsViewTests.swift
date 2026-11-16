@@ -78,4 +78,17 @@ final class MetricsViewTests: XCTestCase {
         let store = makeStore()
         XCTAssertEqual(view(store).tpsScale, 1)
     }
+
+    func testAppUpdateAvailableOnlyForNewerReleases() {
+        let store = makeStore()
+        store.appInstalledVersion = "1.0.3"
+        XCTAssertFalse(store.appUpdateAvailable, "no check result yet")
+        store.appLatestVersion = "1.0.3"
+        XCTAssertFalse(store.appUpdateAvailable, "same version")
+        // Numeric compare, not string: "1.0.10" sorts below "1.0.3" as text.
+        store.appLatestVersion = "1.0.10"
+        XCTAssertTrue(store.appUpdateAvailable)
+        store.appInstalledVersion = "1.1.0"
+        XCTAssertFalse(store.appUpdateAvailable, "already newer")
+    }
 }
