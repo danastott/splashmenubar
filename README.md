@@ -84,9 +84,11 @@ harnesses and Auto Connect; **Server** — the `splash serve` parameters;
 - **Live metrics** from the server's `GET /status` endpoint, polled every
   2 s by default (configurable):
   - **tok/s gauge** (live decode batch, falling back to the lifetime decode
-    speed and the last log-parsed request), a **prefill gauge** (the running
-    prefill batch's tok/s, falling back to the lifetime prefill speed; full
-    ring = 500 tok/s) and a **cache-hit gauge**: the lifetime KV hit rate —
+    speed and the last log-parsed request; the ring auto-scales — full ring
+    = a round number at or above the highest tok/s in the graph's window,
+    the graph's top gridline), a **prefill gauge** (the running prefill
+    batch's tok/s, falling back to the lifetime prefill speed; full ring =
+    500 tok/s) and a **cache-hit gauge**: the lifetime KV hit rate —
     the share of prompt tokens served from the cache instead of being
     prefilled again (the per-request figure is LAST REQUEST → "Input / cached")
   - **tok/s line graph over time** (sampled from the polled status), with a

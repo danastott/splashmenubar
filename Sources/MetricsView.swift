@@ -488,23 +488,30 @@ struct MetricsView: View {
 
     // MARK: - Gauges
 
-    /// Average decode speed of the samples the speed graph shows — the same
-    /// window as the graph's dotted average line.
-    private var tpsAverage: Double? {
+    /// The tok/s ring's full mark: a round number at or above the highest
+    /// speed in the speed graph's window (its top gridline, the same
+    /// formula), so a server topping out past 100 tok/s still reads on the
+    /// ring instead of pinning it.
+    var tpsScale: Double {
         let vals = Array(store.tpsHistory.suffix(config.graphSampleWindow))
-        guard !vals.isEmpty else { return nil }
-        return vals.reduce(0, +) / Double(vals.count)
+        let peak = max(vals.max() ?? 0, store.gaugeTokensPerSecond ?? 0)
+        return Sparkline.axis(for: peak).max
+    }
+
+    /// "of N": what a full tok/s ring is, so the ring's size can be read.
+    private var tpsScaleDetail: String? {
+        store.gaugeTokensPerSecond.map { _ in "of \(Sparkline.label(tpsScale))" }
     }
 
     private var gauges: some View {
         HStack(spacing: 12) {
             RingGauge(
-                value: store.gaugeTokensPerSecond.map { min($0 / 100, 1) },
+                value: store.gaugeTokensPerSecond.map { min($0 / tpsScale, 1) },
                 color: store.gaugeColor(id: "tok", default: .blue),
                 center: Fmt.double(store.gaugeTokensPerSecond),
-                detail: tpsAverage.map { "avg \(Fmt.double($0))" },
+                detail: tpsScaleDetail,
                 caption: "tok/s",
-                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. Full ring = 100 tok/s. Below it: the average of the samples in the speed graph. Right-click to pick the ring's color.",
+                help: "Decode speed: tokens generated per second right now, or the average since splash started when idle. The ring auto-scales to the speed graph's window: full ring = a round number at or above the highest tok/s it shows (the graph's top gridline), so 180 tok/s reads instead of pinning the ring. Below the value: what a full ring is. Right-click to pick the ring's color.",
                 onOpenColorPanel: { onOpenGaugeColorPanel?("tok") }
             )
             RingGauge(
