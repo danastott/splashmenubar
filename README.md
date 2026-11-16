@@ -23,8 +23,13 @@ brew upgrade --cask splashmenubar
 or press **Update App** on the flyout's update card, which runs the same
 commands.
 
-Apple silicon, macOS 13.0 or later. The app is unsigned — for use on your
-own machine. Or build from source: [`make`](#build).
+The app is unsigned, so macOS blocks a downloaded copy on its first
+launch: right-click SplashMenuBar in `/Applications` → **Open** and
+confirm in System Settings → Privacy & Security, or remove the quarantine
+flag with `xattr -dr com.apple.quarantine /Applications/SplashMenuBar.app`.
+
+Apple silicon, macOS 13.0 or later. For use on your own machine. Or build
+from source: [`make`](#build).
 
 ## Screenshots
 
