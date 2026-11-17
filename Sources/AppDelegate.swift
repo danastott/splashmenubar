@@ -96,6 +96,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return m
     }
     private var modelManageWindow: NSWindow?
+    /// The window's state object, kept so a title-bar close can stop a
+    /// running download (the Close button is disabled while one runs, but
+    /// the red button isn't).
+    private var modelManageModel: ModelManageModel?
     private var installWindow: NSWindow?
     private var installModel: InstallModel?
     private var pollTask: Task<Void, Never>?
@@ -280,6 +284,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, self.store.panelPinned,
                   let w = note.object as? NSWindow, w === self.panel else { return }
             self.persistPanelState()
+        }
+
+        // Route every window close through windowWillClose — the Settings
+        // scene's window has no delegate to assign, so the NSWindowDelegate
+        // method alone would never see it.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            self?.windowWillClose(note)
         }
 
         // Debug hook: SPLASHMB_AUTOSHOW=panel|settings|both opens the flyout,
@@ -1156,12 +1169,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The standard Settings scene's window: the app's only non-panel,
-    /// non-status-bar window (the tabbed title is the current tab's name,
-    /// so the window can't be found by its title).
+    /// non-status-bar window besides the install and manage-models windows
+    /// (the tabbed title is the current tab's name, so the window can't be
+    /// found by its title).
     private func settingsWindow() -> NSWindow? {
         NSApp.windows.first { w in
             !(w is NSPanel)
             && !w.className.contains("StatusBar")
+            && w !== installWindow
+            && w !== modelManageWindow
         }
     }
 
@@ -1253,6 +1269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         w.delegate = self
         w.center()
         modelManageWindow = w
+        modelManageModel = model
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
     }
@@ -1260,6 +1277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func closeModelManageWindow() {
         modelManageWindow?.close()
         modelManageWindow = nil
+        modelManageModel = nil
     }
 
     /// Rebuilds an open flyout (e.g. after Settings changed), keeping a
@@ -1289,7 +1307,12 @@ extension AppDelegate: NSWindowDelegate {
             return
         }
         if w === modelManageWindow {
+            // Stop a running download so it isn't orphaned (the Close
+            // button is disabled while one runs, but a title-bar close
+            // isn't).
+            modelManageModel?.cancelDownload()
             modelManageWindow = nil
+            modelManageModel = nil
             // The cache may have changed; refresh the picker's list.
             settingsModel.rescan()
             return
