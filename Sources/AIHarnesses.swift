@@ -178,13 +178,21 @@ enum HarnessConnector {
         return d
     }
 
-    /// Writes `text` to `path` atomically (temp file + replace), creating
-    /// the parent directory when missing.
+    /// Writes `text` to `path` atomically (temp file + rename), creating
+    /// the parent directory when missing and preserving the existing
+    /// file's permissions — a 0600 harness config that still holds secrets
+    /// must not come back world-readable after a rewrite.
     private static func writeAtomic(_ path: URL, _ text: String) throws {
-        try FileManager.default.createDirectory(
+        let fm = FileManager.default
+        try fm.createDirectory(
             at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let oldPerms = (try? fm.attributesOfItem(atPath: path.path))?[.posixPermissions]
+            as? NSNumber
         let data = Data(text.utf8)
         try data.write(to: path, options: [.atomic])
+        if let oldPerms {
+            try fm.setAttributes([.posixPermissions: oldPerms], ofItemAtPath: path.path)
+        }
     }
 
     private static func prettyJSON(_ obj: [String: Any]) -> String {
@@ -213,18 +221,23 @@ enum HarnessConnector {
         return tomlString(s)
     }
 
-    /// The exact line range of a `[table]` block (header to the next
-    /// column-0 `[` line or a blank line, or EOF), or nil when absent.
+    /// The exact line range of a `[table]` block: header to the next
+    /// column-0 `[` line or EOF. Blank lines are legal inside a table, so
+    /// they belong to the block; trailing blank lines are backed off so a
+    /// replace leaves the separator. Or nil when the table is absent.
     private static func tomlTableRange(_ table: String,
                                        in lines: [String]) -> Range<Int>? {
         guard let start = lines.firstIndex(where: { $0 == table }) else {
             return nil
         }
+        var end = lines.count
         var i = start + 1
-        while i < lines.count, !lines[i].hasPrefix("["), !lines[i].isEmpty {
+        while i < lines.count, !lines[i].hasPrefix("[") {
             i += 1
         }
-        return start..<i
+        end = i
+        while end > start + 1, lines[end - 1].isEmpty { end -= 1 }
+        return start..<end
     }
 
     /// A TOML key: bare when its characters allow it, else a quoted basic
@@ -354,8 +367,10 @@ enum HarnessConnector {
         lines.firstIndex { $0.hasPrefix("[") } ?? lines.count
     }
 
-    /// The line range of `[table]`'s block (header to the next column-0
-    /// line, or EOF), or nil when absent.
+    /// The line range of `[table]`'s block: header to the next column-0
+    /// `[` line or EOF. Blank lines are legal inside a table, so they belong
+    /// to the block; trailing blank lines are backed off so a replace leaves
+    /// the separator. Or nil when absent.
     private static func codexTableRange(_ table: String,
                                         in lines: [String]) -> Range<Int>? {
         let header = "[model_providers.\(table)]"
@@ -364,10 +379,11 @@ enum HarnessConnector {
         }
         var end = lines.count
         var i = start + 1
-        while i < lines.count, !lines[i].hasPrefix("["), !lines[i].isEmpty {
+        while i < lines.count, !lines[i].hasPrefix("[") {
             i += 1
         }
         end = i
+        while end > start + 1, lines[end - 1].isEmpty { end -= 1 }
         return start..<end
     }
 
@@ -774,6 +790,20 @@ enum HarnessConnector {
         p.environment = SplashProcess.childEnvironment()
         p.standardInput = FileHandle.nullDevice
         let err = Pipe()
+        // Drain the pipe while the child runs: if it writes more than the
+        // pipe buffer (64 KB) holds before exiting, it blocks on the full
+        // pipe and the wait below times out, turning a success into a
+        // failure.
+        var errBuffer = Data()
+        let errLock = NSLock()
+        err.fileHandleForReading.readabilityHandler = { h in
+            let data = h.availableData
+            guard !data.isEmpty else {
+                h.readabilityHandler = nil
+                return
+            }
+            errLock.lock(); errBuffer.append(data); errLock.unlock()
+        }
         p.standardError = err
         p.standardOutput = err
         do { try p.run() }
@@ -793,7 +823,10 @@ enum HarnessConnector {
         let homeDir = hermesRoot(home).appendingPathComponent("profiles")
             .appendingPathComponent(name)
         if p.terminationStatus != 0, !FileManager.default.fileExists(atPath: homeDir.path) {
-            let data = err.fileHandleForReading.readDataToEndOfFile()
+            err.fileHandleForReading.readabilityHandler = nil
+            errLock.lock()
+            let data = errBuffer
+            errLock.unlock()
             let tail = String(decoding: data, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines).suffix(500)
             throw NSError(domain: "HarnessConnector", code: 5,
@@ -842,13 +875,27 @@ enum HarnessConnector {
                            "api_mode", "supports_vision", "context_length",
                            "max_tokens"]
             var kept: [String] = []
-            for line in lines[range] where !line.isEmpty {
+            var i = range.lowerBound
+            while i < range.upperBound {
+                let line = lines[i]
                 guard line.hasPrefix("  "), !line.hasPrefix("    "),
                       let colon = line.firstIndex(of: ":"),
                       !managed.contains(line[line.startIndex..<colon]
                           .trimmingCharacters(in: .whitespaces))
-                else { continue }
+                else {
+                    i += 1
+                    continue
+                }
+                // Keep the key and its whole indented sub-block, so a user's
+                // nested keys under it survive the rewrite instead of
+                // degrading to YAML null.
                 kept.append(line)
+                i += 1
+                while i < range.upperBound,
+                      lines[i].isEmpty || lines[i].hasPrefix("    ") {
+                    kept.append(lines[i])
+                    i += 1
+                }
             }
             let tail = lines[range.upperBound...]
             lines = Array(lines[..<headerIdx]) + block + kept + Array(tail)

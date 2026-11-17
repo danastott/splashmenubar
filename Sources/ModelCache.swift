@@ -158,6 +158,12 @@ enum ModelCache {
                     "No version \(commit) of \(repo) in the cache"])
         }
         try fm.removeItem(at: snapshot)
+
+        // Re-point refs/main before pruning blobs: if a later step throws,
+        // the ref must not name a snapshot that's already gone (an unpinned
+        // resolve would fail), and the remove stays re-runnable.
+        try repointMainRef(dir, awayFrom: commit, snapshots: snapDir)
+
         // Only blobs that are pruned below are actually freed; the
         // snapshot held symlinks, and blobs shared with remaining
         // versions survive.
@@ -191,27 +197,30 @@ enum ModelCache {
                 try fm.removeItem(at: path)
             }
         }
+        return freed
+    }
 
-        // Keep refs/main pointing at a commit that is still on disk.
+    /// Keeps `refs/main` pointing at a commit that is still on disk: when it
+    /// names the deleted snapshot, re-point it at the newest remaining
+    /// snapshot (removing it when none remain).
+    private static func repointMainRef(_ dir: URL, awayFrom commit: String,
+                                       snapshots snapDir: URL) throws {
+        let fm = FileManager.default
         let ref = dir.appendingPathComponent("refs").appendingPathComponent("main")
         let current = (try? String(contentsOf: ref, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if current == commit {
-            let remaining = ((try? fm.contentsOfDirectory(
-                atPath: snapDir.path)) ?? [])
-                .map { snapDir.appendingPathComponent($0) }
-            if let newest = remaining.max(by: { a, b in
-                let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                return da < db
-            }) {
-                try newest.lastPathComponent.write(
-                    to: ref, atomically: true, encoding: .utf8)
-            } else {
-                try? fm.removeItem(at: ref)
-            }
+        guard current == commit else { return }
+        let remaining = ((try? fm.contentsOfDirectory(atPath: snapDir.path)) ?? [])
+            .map { snapDir.appendingPathComponent($0) }
+        if let newest = remaining.max(by: { a, b in
+            let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return da < db
+        }) {
+            try newest.lastPathComponent.write(to: ref, atomically: true, encoding: .utf8)
+        } else {
+            try? fm.removeItem(at: ref)
         }
-        return freed
     }
 
     /// Removes the whole repo directory. Returns the bytes freed.
