@@ -103,6 +103,10 @@ struct SplashConfig: Codable, Equatable {
     var pinnedPanelTopLeft: PanelTopLeft? = nil
     /// App setting, not a splash flag: the flyout's appearance.
     var theme: UITheme = .system
+    /// App setting, not a splash flag: the unit chip temperatures show in.
+    /// .system (the default) follows the computer's Language & Region
+    /// settings; the other cases override it.
+    var temperatureUnit: TemperatureUnit = .system
     /// App setting, not a splash flag: user-picked colors for the flyout's
     /// gauges, by gauge id (tok/prefill/cached/gpu/cpu/mem/graph) as
     /// "#RRGGBB" hex — nil for a gauge = its default color.
@@ -159,6 +163,7 @@ struct SplashConfig: Codable, Equatable {
          panelPinned: Bool = false,
          pinnedPanelTopLeft: PanelTopLeft? = nil,
          theme: UITheme = .system,
+         temperatureUnit: TemperatureUnit = .system,
          gaugeColors: [String: String] = [:]) {
         self.model = model
         self.port = port
@@ -180,6 +185,7 @@ struct SplashConfig: Codable, Equatable {
         self.panelPinned = panelPinned
         self.pinnedPanelTopLeft = pinnedPanelTopLeft
         self.theme = theme
+        self.temperatureUnit = temperatureUnit
         self.gaugeColors = gaugeColors
     }
 
@@ -209,6 +215,7 @@ struct SplashConfig: Codable, Equatable {
         panelPinned = try c.decodeIfPresent(Bool.self, forKey: .panelPinned) ?? false
         pinnedPanelTopLeft = try c.decodeIfPresent(PanelTopLeft.self, forKey: .pinnedPanelTopLeft)
         theme = (try? c.decodeIfPresent(UITheme.self, forKey: .theme)) ?? .system
+        temperatureUnit = (try? c.decodeIfPresent(TemperatureUnit.self, forKey: .temperatureUnit)) ?? .system
         gaugeColors = try c.decodeIfPresent([String: String].self, forKey: .gaugeColors) ?? [:]
     }
 

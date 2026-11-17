@@ -144,7 +144,7 @@ struct MetricsView: View {
                         if store.thermalState != nil {
                             Text("·").font(.system(size: 10)).foregroundColor(.secondary)
                         }
-                        Text(TemperatureUnit.format(celsius: c))
+                        Text(config.temperatureUnit.format(celsius: c))
                             .font(.system(size: 10, weight: .medium).monospacedDigit())
                     }
                 }
@@ -472,13 +472,14 @@ struct MetricsView: View {
         var parts: [String] = []
         if let s = store.thermalState {
             parts.append([
-                "Thermal state of this Mac, as reported by macOS through splash.",
+                "Thermal state of this Mac: macOS's system-wide thermal-pressure state, reported to the app through splash.",
                 thermalMeaning(s),
                 "Levels: nominal → fair → serious → critical.",
+                "The OS sets it from the whole system and changes it slowly, so it can temporarily disagree with the chip temperature shown next to it.",
             ].joined(separator: "\n"))
         }
         if let c = store.chipTemperatureC {
-            parts.append("Chip temperature: \(TemperatureUnit.format(celsius: c)), the hottest CPU/GPU die sensor (°F or °C follows Language & Region settings).")
+            parts.append("Chip temperature: \(config.temperatureUnit.format(celsius: c)) — the hottest CPU/GPU die sensor, read directly by the app (not from splash). The unit follows the Temperature setting; System uses the computer's region.")
         }
         return parts.joined(separator: "\n")
     }

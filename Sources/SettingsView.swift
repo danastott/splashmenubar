@@ -35,6 +35,7 @@ final class SettingsModel: ObservableObject {
     @Published var startServerOnLaunch: Bool
     @Published var launchAtLogin: Bool
     @Published var theme: UITheme
+    @Published var temperatureUnit: TemperatureUnit
     /// True once "Reset to defaults" was pressed, so a following Save also
     /// clears the flyout gauge colors (which the form doesn't edit itself).
     private var didResetToDefaults = false
@@ -121,6 +122,7 @@ final class SettingsModel: ObservableObject {
         startServerOnLaunch = config.startServerOnLaunch
         launchAtLogin = config.launchAtLogin
         theme = config.theme
+        temperatureUnit = config.temperatureUnit
 
         // Scanning the Hugging Face cache walks and resolves every snapshot
         // file, so keep it off the main thread.
@@ -163,6 +165,7 @@ final class SettingsModel: ObservableObject {
         c.startServerOnLaunch = startServerOnLaunch
         c.launchAtLogin = launchAtLogin
         c.theme = theme
+        c.temperatureUnit = temperatureUnit
         // The flyout's pin state and position live with the app, not the
         // form: carrying them through keeps a Save from resetting them.
         c.panelPinned = base.panelPinned
@@ -454,6 +457,12 @@ struct SettingsView: View {
                     }
                 }
                 .help("The flyout's (and this window's) color theme: follow the system's dark/light mode, or force one. The preview here updates as you pick; the flyout takes it on Save. Changing only this does not restart the server.")
+                Picker("Temperature", selection: $settings.temperatureUnit) {
+                    ForEach(TemperatureUnit.allCases, id: \.self) { u in
+                        Text(u.label).tag(u)
+                    }
+                }
+                .help("The unit the chip temperature shows in. System (the default) follows the computer's region — System Settings → General → Language & Region; pick Fahrenheit or Celsius to override it. Changing only this does not restart the server.")
             }
         }
         .formStyle(.grouped)

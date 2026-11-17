@@ -67,23 +67,46 @@ final class ThermalSensor {
     }
 }
 
-/// Formats temperatures in the unit the user picked in System Settings ›
-/// General › Language & Region, else their region's default.
-enum TemperatureUnit {
-    static var usesFahrenheit: Bool {
-        // Set when the user chooses a unit explicitly.
-        if let pref = UserDefaults.standard.string(forKey: "AppleTemperatureUnit") {
-            return pref == "Fahrenheit"
+/// The temperature unit the app displays: what the user picked in
+/// Settings (App pane), or — on System — the unit the computer's
+/// Language & Region settings pick.
+enum TemperatureUnit: String, Codable, CaseIterable, Identifiable {
+    case system
+    case fahrenheit
+    case celsius
+
+    var id: Self { self }
+
+    /// The picker's label for this unit.
+    var label: String {
+        switch self {
+        case .system: return "System (region)"
+        case .fahrenheit: return "Fahrenheit (°F)"
+        case .celsius: return "Celsius (°C)"
         }
-        // A locale override such as en_GB@mu=fahrenhe.
-        let id = Locale.current.identifier.lowercased()
-        if id.contains("mu=fahrenhe") { return true }
-        if id.contains("mu=celsius") { return false }
-        return Locale.current.measurementSystem == .us
+    }
+
+    /// True when this unit displays Fahrenheit — for .system, whatever
+    /// System Settings › General › Language & Region picks.
+    var usesFahrenheit: Bool {
+        switch self {
+        case .fahrenheit: return true
+        case .celsius: return false
+        case .system:
+            // Set when the user chooses a unit explicitly.
+            if let pref = UserDefaults.standard.string(forKey: "AppleTemperatureUnit") {
+                return pref == "Fahrenheit"
+            }
+            // A locale override such as en_GB@mu=fahrenhe.
+            let id = Locale.current.identifier.lowercased()
+            if id.contains("mu=fahrenhe") { return true }
+            if id.contains("mu=celsius") { return false }
+            return Locale.current.measurementSystem == .us
+        }
     }
 
     /// e.g. "115°F" or "46°C".
-    static func format(celsius c: Double) -> String {
+    func format(celsius c: Double) -> String {
         usesFahrenheit
             ? String(format: "%.0f°F", c * 9 / 5 + 32)
             : String(format: "%.0f°C", c)
