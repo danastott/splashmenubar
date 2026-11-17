@@ -235,13 +235,30 @@ struct SplashConfig: Codable, Equatable {
         guard let data = try? Data(contentsOf: configURL) else {
             return (.default, nil)   // no file yet: first launch
         }
-        guard let cfg = try? JSONDecoder().decode(SplashConfig.self, from: data) else {
+        guard let raw = try? JSONDecoder().decode(SplashConfig.self, from: data) else {
             quarantineCorruptConfig()
             return (.default,
                     "Saved settings could not be read, so the defaults are in use. "
                     + "The unreadable file was moved to ~/.splashmenubar.json.bak.")
         }
-        return (cfg, nil)
+        return (sanitize(raw), nil)
+    }
+
+    /// The file is hand-editable, so valid JSON can still carry out-of-range
+    /// values. In particular `refreshInterval` ≤ 0 would trap the poll loop
+    /// (the UInt64 nanoseconds conversion) and the graph window (division by
+    /// zero), so clamp it to the picker's range; port and graph minutes to
+    /// theirs.
+    private static func sanitize(_ cfg: SplashConfig) -> SplashConfig {
+        var c = cfg
+        c.refreshInterval = min(max(c.refreshInterval,
+                                    refreshIntervalChoices.min()!),
+                                refreshIntervalChoices.max()!)
+        c.port = min(max(c.port, 1), 65535)
+        c.graphMinutes = min(max(c.graphMinutes,
+                                 graphMinutesChoices.min()!),
+                             graphMinutesChoices.max()!)
+        return c
     }
 
     /// Moves an unreadable config out of the way; a newer corrupt file
@@ -756,21 +773,21 @@ final class SplashProcess {
         let oldPorts = Set([lastConfig.port, config.port] + (externalPort.map { [$0] } ?? []))
         lastConfig = config
         externalPort = nil
-        var pids = Set<pid_t>()
-        for port in oldPorts { pids.formUnion(Self.findServerPIDs(port: port)) }
-        guard !pids.isEmpty else {
-            start(config)
-            return
-        }
         let token = UUID()
         externalRestartToken = token
         setState(.starting)
-        for pid in pids { kill(pid, SIGTERM) }
-        let all = Array(pids)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            // Give it 5 s to exit cleanly, then force it, then start ours.
-            Self.killAfterGrace(all, grace: 5)
-            Thread.sleep(forTimeInterval: 0.5)   // let the port free up
+            // findServerPIDs runs lsof/ps/pgrep and blocks, so keep it off
+            // the main thread (see discoverServerPorts' doc).
+            var pids = Set<pid_t>()
+            for port in oldPorts { pids.formUnion(Self.findServerPIDs(port: port)) }
+            let all = Array(pids)
+            if !all.isEmpty {
+                for pid in all { kill(pid, SIGTERM) }
+                // Give it 5 s to exit cleanly, then force it.
+                Self.killAfterGrace(all, grace: 5)
+                Thread.sleep(forTimeInterval: 0.5)   // let the port free up
+            }
             DispatchQueue.main.async {
                 // Stop (or a fresh Start) while waiting cancels this start.
                 guard let self, self.externalRestartToken == token, self.proc == nil else { return }
@@ -835,16 +852,33 @@ final class OutputReader {
     init(handle: FileHandle, onLine: @escaping (String) -> Void) {
         self.handle = handle
         self.onLine = onLine
+        // Non-blocking: the readability handler must never block. A spurious
+        // wakeup with no data and no EOF (the engine can outlive the wrapper
+        // and keep the pipe open) would otherwise hold the lock through a
+        // blocking read and hang cancel() on the main thread.
+        let flags = fcntl(handle.fileDescriptor, F_GETFL)
+        if flags >= 0 { fcntl(handle.fileDescriptor, F_SETFL, flags | O_NONBLOCK) }
         handle.readabilityHandler = { [weak self] h in
             self?.read(from: h)
         }
     }
 
     private func read(from h: FileHandle) {
+        var buf = [UInt8](repeating: 0, count: 1 << 16)
+        let n = Darwin.read(h.fileDescriptor, &buf, buf.count)
+        let chunk: Data
+        if n > 0 {
+            chunk = Data(buf[0..<n])
+        } else if n == 0 {
+            chunk = Data()                       // EOF
+        } else if errno == EAGAIN || errno == EWOULDBLOCK {
+            return                               // spurious wakeup
+        } else {
+            chunk = Data()                       // EBADF/EIO: handle closed
+        }
         lock.lock()
         defer { lock.unlock() }
         guard !done else { return }
-        let chunk = h.availableData
         if chunk.isEmpty {
             finishLocked()   // EOF
             return
