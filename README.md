@@ -202,6 +202,16 @@ harnesses and Auto Connect; **Server** — the `splash serve` parameters;
   the disk no remaining version references.
 - The status bar item shows the live tok/s while decoding, e.g. `▣ 78.5 t/s`; while a prompt is prefilling (and nothing is decoding) it shows the prompt progress instead, e.g. `▣ ◐ 46%`; when the server is idle it shows a green ●.
 
+## Languages
+
+The UI is available in 15 languages: English, German, French, Italian,
+Spanish, Portuguese (Brazil), Portuguese (Portugal), Dutch, Polish,
+Turkish, Russian, Simplified Chinese, Traditional Chinese, Japanese and
+Korean. By default it follows the computer's language (System Settings →
+General → Language & Region) and falls back to English when the system
+language isn't supported; Settings → App → Language picks another one
+(saving it relaunches the app, since macOS applies the language at launch).
+
 ## Build
 
 ```sh
