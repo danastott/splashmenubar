@@ -18,9 +18,9 @@ enum UITheme: String, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .system: return "System (default)"
-        case .light: return "Light"
-        case .dark: return "Dark"
+        case .system: return String(localized: "System (default)")
+        case .light: return String(localized: "Light")
+        case .dark: return String(localized: "Dark")
         }
     }
 }
@@ -36,7 +36,9 @@ struct CrashInfo: Equatable {
 
     var description: String {
         if let note { return note }
-        return bySignal ? "killed by signal \(code)" : "exited with code \(code)"
+        return bySignal
+            ? String(localized: "killed by signal \(code)")
+            : String(localized: "exited with code \(code)")
     }
 }
 
@@ -48,10 +50,10 @@ enum SplashState: Equatable {
 
     var label: String {
         switch self {
-        case .stopped: return "stopped"
-        case .starting: return "starting"
-        case .running: return "running"
-        case .crashed: return "crashed"
+        case .stopped: return String(localized: "stopped")
+        case .starting: return String(localized: "starting")
+        case .running: return String(localized: "running")
+        case .crashed: return String(localized: "crashed")
         }
     }
 }

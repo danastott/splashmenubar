@@ -908,8 +908,8 @@ enum HarnessConnector {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try writeAtomic(url, lines.joined(separator: "\n") + "\n")
-        return "profile \(c.providerName) → \(c.endpoint)"
-            + (created ? " (profile created)" : "")
+        return String(localized: "profile \(c.providerName) → \(c.endpoint)")
+            + (created ? String(localized: " (profile created)") : "")
     }
 
     // MARK: - opencode & kilo (one config shape, two files)
@@ -1600,11 +1600,11 @@ final class HarnessModel: ObservableObject {
     func connect() {
         guard let sel = selected, !busy else { return }
         guard installedIDs.contains(sel.id) else {
-            note = "Install \(sel.name) first — Auto Connect writes its configuration."
+            note = String(localized: "Install \(sel.name) first — Auto Connect writes its configuration.")
             return
         }
         guard let conn = connectionProvider() else {
-            note = "Start splash once first — Auto Connect needs the served model's name."
+            note = String(localized: "Start splash once first — Auto Connect needs the served model's name.")
             return
         }
         busy = true

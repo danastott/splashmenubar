@@ -210,7 +210,8 @@ struct ModelManageView: View {
                         .foregroundColor(.orange)
                 }
                 Spacer()
-                Button(model.downloading ? "Working…" : "Close") { onClose() }
+                let title: LocalizedStringKey = model.downloading ? "Working…" : "Close"
+                Button(title) { onClose() }
                     .disabled(model.downloading)
                     .keyboardShortcut(.defaultAction)
             }
@@ -257,14 +258,16 @@ struct ModelManageView: View {
                 .buttonStyle(.plain)
                 Text(repo.id)
                     .font(.system(size: 12, weight: .medium))
-                Text("· \(Fmt.bytes(Int(repo.totalSize))) · \(repo.versions.count) version\(repo.versions.count == 1 ? "" : "s")")
+                let versions = Plural.format("versions", repo.versions.count)
+                Text("· \(Fmt.bytes(Int(repo.totalSize))) · \(versions)")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                 Spacer()
                 Button {
                     confirmRemove(
-                        "Remove \(repo.id) from the model cache?",
-                        informative: "Removes all \(repo.versions.count) version\(repo.versions.count == 1 ? "" : "s"), freeing about \(Fmt.bytes(Int(repo.totalSize))). This only affects local files; splash can re-download them.",
+                        String(localized: "Remove \(repo.id) from the model cache?"),
+                        // "removeVersions.one"/"removeVersions.other" keys.
+                        informative: Plural.format("removeVersions", repo.versions.count, [Fmt.bytes(Int(repo.totalSize))]),
                         action: { model.removeRepo(repo.id) })
                 } label: {
                     Image(systemName: "trash")
@@ -300,11 +303,12 @@ struct ModelManageView: View {
                     .foregroundColor(Color.accentColor)
             }
             if v.completeVariants.isEmpty {
-                Text(v.isComplete ? "complete" : "partial")
+                let status: LocalizedStringKey = v.isComplete ? "complete" : "partial"
+                Text(status)
                     .font(.system(size: 10))
                     .foregroundColor(v.isComplete ? .secondary : .orange)
             } else {
-                Text("complete: " + v.completeVariants.joined(separator: ", "))
+                Text("complete: \(v.completeVariants.joined(separator: ", "))")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -312,8 +316,8 @@ struct ModelManageView: View {
             Spacer()
             Button {
                 confirmRemove(
-                    "Remove version \(v.shortCommit) of \(repo.id)?",
-                    informative: "Frees about \(Fmt.bytes(Int(v.size))) (plus any cache files only this version uses). Other versions of the model stay. splash can re-download it.",
+                    String(localized: "Remove version \(v.shortCommit) of \(repo.id)?"),
+                    informative: String(localized: "Frees about \(Fmt.bytes(Int(v.size))) (plus any cache files only this version uses). Other versions of the model stay. splash can re-download it."),
                     action: { model.removeVersion(repo: repo.id, commit: v.commit) })
             } label: {
                 Image(systemName: "trash")
@@ -339,7 +343,8 @@ struct ModelManageView: View {
                 TextField("revision — branch, tag or commit (blank = default)",
                           text: $model.downloadRevision)
                     .textFieldStyle(.roundedBorder)
-                Button(model.downloading ? "Downloading…" : "Download") {
+                let title: LocalizedStringKey = model.downloading ? "Downloading…" : "Download"
+                Button(title) {
                     model.startDownload()
                 }
                 .disabled(model.downloading
@@ -394,9 +399,9 @@ struct ModelManageView: View {
         alert.messageText = message
         alert.informativeText = informative
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: String(localized: "Remove"))
         alert.buttons.first?.hasDestructiveAction = true
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "Cancel"))
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn {
             action()

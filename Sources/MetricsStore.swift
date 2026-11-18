@@ -5,13 +5,17 @@ import SwiftUI
 /// Aggregates parsed splash log lines and polled `/status` endpoint data
 /// into publishable metrics state. All mutation happens on the main thread.
 final class MetricsStore: ObservableObject {
+    /// The startup title's "starting" text: one constant so the equality
+    /// check below stays correct in every locale.
+    static let startingTitle = String(localized: "Starting splash…")
+
     // Process state (from SplashProcess).
     @Published var state: SplashState = .stopped {
         didSet {
             // Our child just started: begin tracking its startup.
             if state == .running, oldValue != .running, readyModel == nil {
                 startupBegan = Date()
-                startupTitle = "Starting splash…"
+                startupTitle = Self.startingTitle
                 startupDetail = nil
                 startupFraction = nil
             }
@@ -290,15 +294,16 @@ final class MetricsStore: ObservableObject {
         case .thermal(_, let to):
             thermalState = to
         case .selected(let file, let repo):
-            startupTitle = "Preparing \(repo)"
+            startupTitle = String(localized: "Preparing \(repo)")
             startupDetail = file
             startupFraction = nil
         case .fetching(let repo, let files, let totalBytes):
             sawByteProgress = false
             modelDownloadedThisStartup = true
-            startupTitle = "Downloading \(repo)"
+            startupTitle = String(localized: "Downloading \(repo)")
             var parts: [String] = []
-            if let files { parts.append("\(files) file\(files == 1 ? "" : "s")") }
+            // "files.one"/"files.other" keys; Plural picks the CLDR category.
+            if let files { parts.append(Plural.format("files", files)) }
             if let totalBytes { parts.append(SplashParser.decimalBytes(totalBytes)) }
             startupDetail = parts.isEmpty ? nil : parts.joined(separator: " · ")
             startupFraction = 0
@@ -311,16 +316,16 @@ final class MetricsStore: ObservableObject {
             } else if sawByteProgress {
                 break
             }
-            if startupTitle == nil || startupTitle == "Starting splash…" {
-                startupTitle = "Downloading model"
+            if startupTitle == nil || startupTitle == Self.startingTitle {
+                startupTitle = String(localized: "Downloading model")
             }
             startupFraction = bar.fraction
             var parts = ["\(bar.done) / \(bar.total)"]
             if let r = bar.rate { parts.append(r) }
-            if let e = bar.eta { parts.append("\(e) left") }
+            if let e = bar.eta { parts.append(String(localized: "\(e) left")) }
             startupDetail = parts.joined(separator: " · ")
         case .loading(let model):
-            startupTitle = "Loading model weights"
+            startupTitle = String(localized: "Loading model weights")
             startupDetail = model
             startupFraction = nil
         case .ready(let model, let context, let url):
@@ -333,8 +338,8 @@ final class MetricsStore: ObservableObject {
             if serverStartedAt == nil { serverStartedAt = Date() }
         case .weightsLoaded(let s):
             weightsLoadSeconds = s
-            startupTitle = "Starting the server"
-            startupDetail = "Weights loaded in \(Fmt.seconds(s))"
+            startupTitle = String(localized: "Starting the server")
+            startupDetail = String(localized: "Weights loaded in \(Fmt.seconds(s))")
             startupFraction = nil
         case .raw(let text):
             // Drop splash's "HH:MM:SS " prefix; the card shows elapsed time.

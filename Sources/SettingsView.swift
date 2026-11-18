@@ -252,7 +252,9 @@ struct SettingsView: View {
     let onManageModels: () -> Void
 
     /// Help text shared by the Model row and the Custom field row.
-    private static let modelHelp = "--model: a supported model, or Custom… for any Hugging Face model as OWNER/REPO[:VARIANT] with the GGUF variant after ':'. Downloaded models are found in the Hugging Face cache; others download on first start, along with their draft."
+    private static var modelHelp: String {
+        String(localized: "--model: a supported model, or Custom… for any Hugging Face model as OWNER/REPO[:VARIANT] with the GGUF variant after ':'. Downloaded models are found in the Hugging Face cache; others download on first start, along with their draft.")
+    }
 
     /// The config file's path, with the home directory shown as ~.
     private var configFileDisplay: String {
@@ -344,10 +346,13 @@ struct SettingsView: View {
             Section {
                 Picker("AI harness", selection: $harnesses.selectedID) {
                     ForEach(harnesses.supported) { h in
-                        Text(harnesses.installedIDs.contains(h.id)
-                             ? h.name
-                             : "\(h.name) (not installed)")
-                            .tag(Optional(h.id))
+                        if harnesses.installedIDs.contains(h.id) {
+                            Text(h.name).tag(Optional(h.id))
+                        } else {
+                            // The ternary form coerced both branches to String
+                            // and skipped localization of "(not installed)".
+                            Text("\(h.name) (not installed)").tag(Optional(h.id))
+                        }
                     }
                 }
                 .labelsHidden()
@@ -358,7 +363,8 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     harnessStatusLine
                     HStack(spacing: 8) {
-                        Button(harnesses.busy ? "Connecting…" : "Auto Connect") {
+                        let title: LocalizedStringKey = harnesses.busy ? "Connecting…" : "Auto Connect"
+                        Button(title) {
                             harnesses.connect()
                         }
                         .disabled(harnesses.busy || !harnesses.selectedIsInstalled)
@@ -435,13 +441,15 @@ struct SettingsView: View {
             Section {
                 Picker("UI refresh", selection: $settings.refreshInterval) {
                     ForEach(SplashConfig.refreshIntervalChoices, id: \.self) { v in
-                        Text(v < 1 ? "\(Int(v * 1000)) ms" : "\(Int(v)) s" + (v == 2 ? " (default)" : "")).tag(v)
+                        Text(v < 1 ? "\(Int(v * 1000)) ms"
+                                  : v == 2 ? "\(Int(v)) s (default)"
+                                          : "\(Int(v)) s").tag(v)
                     }
                 }
                 .help("How often the app polls splash's /status endpoint to update the flyout and the menu bar. Faster is more responsive and costs a little more CPU. Changing only this does not restart the server.")
                 Picker("Speed graph span", selection: $settings.graphMinutes) {
                     ForEach(SplashConfig.graphMinutesChoices, id: \.self) { m in
-                        Text("\(m) min" + (m == 5 ? " (default)" : "")).tag(m)
+                        Text(m == 5 ? "\(m) min (default)" : "\(m) min").tag(m)
                     }
                 }
                 .help("How many minutes of generation the tok/s graph shows. Only time spent generating is sampled, so idle gaps don't count. Changing only this does not restart the server.")
@@ -516,8 +524,11 @@ struct SettingsView: View {
             if !available.isEmpty {
                 Section("Not downloaded") {
                     ForEach(available) { m in
-                        Text(m.label + (m.downloadGB.map { " · \($0) GB download" } ?? ""))
-                            .tag(m.id)
+                        if let gb = m.downloadGB {
+                            Text("\(m.label) · \(gb) GB download").tag(m.id)
+                        } else {
+                            Text(m.label).tag(m.id)
+                        }
                     }
                 }
             }
@@ -530,7 +541,7 @@ struct SettingsView: View {
     private var modelStatus: some View {
         switch settings.currentStatus {
         case .downloaded(let size):
-            let text = "Downloaded · \(Fmt.bytes(Int(size))) on disk"
+            let text = String(localized: "Downloaded · \(Fmt.bytes(Int(size))) on disk")
             if let url = SplashModels.storageURL(for: settings.modelID) {
                 Button {
                     NSWorkspace.shared.open(url)

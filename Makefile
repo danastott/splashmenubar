@@ -8,6 +8,7 @@ FLAGS      = -O
 # application ... with this version of macOS").
 TARGET     = $(shell uname -m)-apple-macosx13.0
 SOURCES    = $(wildcard Sources/*.swift)
+LOCALES    = $(wildcard Resources/*.lproj)
 
 # Tests link Xcode's XCTest (the Command Line Tools don't ship it), so they
 # build against a full Xcode — override with `make test DEV=/path/to/Xcode.app`.
@@ -25,12 +26,15 @@ $(BIN): $(SOURCES)
 	@mkdir -p build
 	$(SWIFTC) $(FLAGS) -target $(TARGET) -o $@ $(SOURCES) -framework AppKit -framework SwiftUI -framework IOKit
 
-$(APP).app: $(BIN) Info.plist Resources/AppIcon.icns
+$(APP).app: $(BIN) Info.plist Resources/AppIcon.icns $(LOCALES)
 	@rm -rf $(APP).app
 	@mkdir -p $(APP).app/Contents/MacOS $(APP).app/Contents/Resources
 	@cp $(BIN) $(APP).app/Contents/MacOS/$(APP)
 	@cp Resources/AppIcon.icns $(APP).app/Contents/Resources/AppIcon.icns
 	@cp Info.plist $(APP).app/Contents/Info.plist
+	# Localized .lproj bundles (Localizable.strings / .stringsdict). Keys are
+	# the English source text; a missing key falls back to the key itself.
+	@for l in $(LOCALES); do cp -R $$l $(APP).app/Contents/Resources/; done
 	# Ad-hoc sign the bundle: the linker's ad-hoc signature on the bare
 	# binary leaves the bundle unsigned, and macOS calls a quarantined
 	# app in that state "damaged" (unbypassable) instead of the usual
@@ -81,7 +85,13 @@ version:
 	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(shell echo $(VERSION) | tr -d .)" Info.plist
 	@echo "Info.plist: $(VERSION) (build $(shell echo $(VERSION) | tr -d .))"
 
+# Verify localization files: every <lang>.lproj has the same key set as
+# en.lproj, and every simple (un-interpolated) UI literal in Sources/ has a
+# key in en.lproj.
+check-i18n:
+	python3 scripts/check_localizations.py
+
 clean:
 	rm -rf build $(APP).app
 
-.PHONY: all run clean test version
+.PHONY: all run clean test version check-i18n

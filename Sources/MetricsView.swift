@@ -154,6 +154,10 @@ struct MetricsView: View {
                 .contentShape(Capsule())
                 .help(headerPillHelp)
             }
+            let pinTitle: LocalizedStringKey = store.panelPinned ? "Unpin" : "Pin"
+            let pinHelp: LocalizedStringKey = store.panelPinned
+                ? "Pinned: this panel stays open until you unpin it, and you can drag it anywhere by its top edge. Click to unpin and snap it back under the menu bar."
+                : "Pin this panel open, so clicking elsewhere, pressing Esc or using its buttons doesn't close it. Pinned, you can drag it anywhere on screen by its top edge."
             Button(action: { onAction(.togglePin) }) {
                 Image(systemName: store.panelPinned ? "pin.fill" : "pin")
                     .font(.system(size: 12))
@@ -161,10 +165,8 @@ struct MetricsView: View {
                     .foregroundColor(store.panelPinned ? .accentColor : .secondary)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(store.panelPinned ? "Unpin" : "Pin")
-            .help(store.panelPinned
-                  ? "Pinned: this panel stays open until you unpin it, and you can drag it anywhere by its top edge. Click to unpin and snap it back under the menu bar."
-                  : "Pin this panel open, so clicking elsewhere, pressing Esc or using its buttons doesn't close it. Pinned, you can drag it anywhere on screen by its top edge.")
+            .accessibilityLabel(pinTitle)
+            .help(pinHelp)
             Button(action: { onAction(.settings) }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12))
@@ -182,7 +184,7 @@ struct MetricsView: View {
     private var startupCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(store.startupTitle ?? "Starting splash…")
+                Text(store.startupTitle ?? String(localized: "Starting splash…"))
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -320,7 +322,7 @@ struct MetricsView: View {
                 Spacer()
                 Button("Update Splash") { onAction(.update) }
                     .controlSize(.small)
-                    .help("Confirm and update splash to \(store.latestVersion ?? "the newest version") through Homebrew; afterwards the server can be restarted onto it.")
+                    .help("Confirm and update splash to \(store.latestVersion ?? String(localized: "the newest version")) through Homebrew; afterwards the server can be restarted onto it.")
             }
             Text("Installed: \(store.installedVersion ?? "?"). The update runs `brew upgrade \(SplashInstaller.formula)`.")
                 .font(.system(size: 10))
@@ -345,7 +347,7 @@ struct MetricsView: View {
                 Spacer()
                 Button("Update App") { onAction(.updateApp) }
                     .controlSize(.small)
-                    .help("Confirm and update Splash Menu Bar to \(store.appLatestVersion ?? "the newest version") through Homebrew; the app relaunches afterwards.")
+                    .help("Confirm and update Splash Menu Bar to \(store.appLatestVersion ?? String(localized: "the newest version")) through Homebrew; the app relaunches afterwards.")
             }
             Text("Installed: \(store.appInstalledVersion ?? "?"). The update runs `brew upgrade --cask splashmenubar`.")
                 .font(.system(size: 10))
@@ -362,29 +364,31 @@ struct MetricsView: View {
     /// crashes, so without this the flyout would look healthy.
     private var engineWarning: (title: String, detail: String, color: Color)? {
         if store.metalHealthy == false {
-            return ("Engine error",
-                    "Metal is reporting a failure; requests may fail or hang until splash is restarted.\(failuresSuffix)",
+            return (String(localized: "Engine error"),
+                    String(localized: "Metal is reporting a failure; requests may fail or hang until splash is restarted.\(failuresSuffix)"),
                     .red)
         }
         if store.engineRecovering {
-            return ("Engine recovering",
-                    "The inference engine crashed and is restarting; requests can't be served until it's back.\(restartsSuffix)",
+            return (String(localized: "Engine recovering"),
+                    String(localized: "The inference engine crashed and is restarting; requests can't be served until it's back.\(restartsSuffix)"),
                     .orange)
         }
         if store.engineRestarts > 0 || store.engineFailures > 0 {
-            return ("Engine unstable",
-                    "The inference engine has crashed and restarted since startup;\(restartsSuffix) if it keeps happening, restart splash.",
+            return (String(localized: "Engine unstable"),
+                    String(localized: "The inference engine has crashed and restarted since startup;\(restartsSuffix) if it keeps happening, restart splash."),
                     .orange)
         }
         return nil
     }
 
     private var restartsSuffix: String {
-        store.engineRestarts > 0 ? " Restarted \(store.engineRestarts)× since startup." : ""
+        store.engineRestarts > 0 ? String(localized: " Restarted \(store.engineRestarts)× since startup.") : ""
     }
 
+    /// " N engine failure(s) since startup." — Plural picks the CLDR category
+    /// (keys "engineFailures.one"/"engineFailures.other").
     private var failuresSuffix: String {
-        store.engineFailures > 0 ? " \(store.engineFailures) engine failure\(store.engineFailures == 1 ? "" : "s") since startup." : ""
+        store.engineFailures > 0 ? Plural.format("engineFailures", store.engineFailures) : ""
     }
 
     /// First launch with no server running: point at Settings to pick a
@@ -438,21 +442,21 @@ struct MetricsView: View {
     var statusHelp: String {
         let base: String
         if store.isStartingUp {
-            base = "Yellow: splash is starting (downloading or loading the model)."
+            base = String(localized: "Yellow: splash is starting (downloading or loading the model).")
         } else if store.effectiveRunning {
             base = store.endpointReady || store.readyModel != nil
-                ? "Green: splash is running and ready for requests."
-                : "Green: splash is running."
+                ? String(localized: "Green: splash is running and ready for requests.")
+                : String(localized: "Green: splash is running.")
         } else {
             switch store.state {
             case .crashed(let info):
-                base = "Red: splash exited unexpectedly (\(info.description)). Press Start to run it again."
+                base = String(localized: "Red: splash exited unexpectedly (\(info.description)). Press Start to run it again.")
             default:
-                base = "Gray: splash is stopped. Press Start to run it."
+                base = String(localized: "Gray: splash is stopped. Press Start to run it.")
             }
         }
         if let version = store.serverVersion {
-            return base + "\nsplash \(version)"
+            return base + "\nsplash " + version
         }
         return base
     }
@@ -471,15 +475,15 @@ struct MetricsView: View {
     private var headerPillHelp: String {
         var parts: [String] = []
         if let s = store.thermalState {
-            parts.append([
-                "Thermal state of this Mac: macOS's system-wide thermal-pressure state, reported to the app through splash.",
-                thermalMeaning(s),
-                "Levels: nominal → fair → serious → critical.",
-                "The OS sets it from the whole system and changes it slowly, so it can temporarily disagree with the chip temperature shown next to it.",
-            ].joined(separator: "\n"))
+            parts.append(String(localized: """
+            Thermal state of this Mac: macOS's system-wide thermal-pressure state, reported to the app through splash.
+            \(thermalMeaning(s))
+            Levels: nominal → fair → serious → critical.
+            The OS sets it from the whole system and changes it slowly, so it can temporarily disagree with the chip temperature shown next to it.
+            """))
         }
         if let c = store.chipTemperatureC {
-            parts.append("Chip temperature: \(config.temperatureUnit.format(celsius: c)) — the hottest CPU/GPU die sensor, read directly by the app (not from splash). The unit follows the Temperature setting; System uses the computer's region.")
+            parts.append(String(localized: "Chip temperature: \(config.temperatureUnit.format(celsius: c)) — the hottest CPU/GPU die sensor, read directly by the app (not from splash). The unit follows the Temperature setting; System uses the computer's region."))
         }
         return parts.joined(separator: "\n")
     }
@@ -487,15 +491,15 @@ struct MetricsView: View {
     private func thermalMeaning(_ s: String) -> String {
         switch s {
         case "nominal":
-            return "Nominal: normal temperature, no thermal limits."
+            return String(localized: "Nominal: normal temperature, no thermal limits.")
         case "fair":
-            return "Fair: slightly warm. Fans may spin up and macOS may trim background work; speeds are usually unaffected."
+            return String(localized: "Fair: slightly warm. Fans may spin up and macOS may trim background work; speeds are usually unaffected.")
         case "serious":
-            return "Serious: hot. macOS is throttling the CPU and GPU, so tok/s and prefill speed will drop."
+            return String(localized: "Serious: hot. macOS is throttling the CPU and GPU, so tok/s and prefill speed will drop.")
         case "critical":
-            return "Critical: very hot. Heavy throttling until the Mac cools down."
+            return String(localized: "Critical: very hot. Heavy throttling until the Mac cools down.")
         default:
-            return "Current state: \(s)."
+            return String(localized: "Current state: \(s).")
         }
     }
 
@@ -588,7 +592,7 @@ struct MetricsView: View {
                     value: store.system.memory,
                     color: memBarColor,
                     caption: "RAM",
-                    help: memoryHelp + " Right-click to pick the bar's color; while the pressure is warning or critical the bar shows that color instead.",
+                    help: "\(memoryHelp) Right-click to pick the bar's color; while the pressure is warning or critical the bar shows that color instead.",
                     onOpenColorPanel: { onOpenGaugeColorPanel?("mem") }
                 )
             }
@@ -598,33 +602,34 @@ struct MetricsView: View {
     }
 
     private var memoryHelp: String {
-        var s = "Memory used across the whole Mac (app memory + wired + compressed, as Activity Monitor counts it)"
+        let counts: String
         if let used = store.system.memoryUsedBytes, let total = store.system.memoryTotalBytes {
-            s += ": \(Fmt.bytes(Int(used))) of \(Fmt.bytes(Int(total)))"
+            counts = String(localized: "Memory used across the whole Mac (app memory + wired + compressed, as Activity Monitor counts it): \(Fmt.bytes(Int(used))) of \(Fmt.bytes(Int(total)))")
+        } else {
+            counts = String(localized: "Memory used across the whole Mac (app memory + wired + compressed, as Activity Monitor counts it)")
         }
-        s += ". The bar's color follows the server's memory-pressure report — "
-        return s + pressureHelp
+        return String(localized: "\(counts). The bar's color follows the server's memory-pressure report — \(pressureHelp)")
     }
 
     /// Explains the Mem bar's green/yellow/red coloring and the current
     /// pressure.
     private var pressureHelp: String {
-        let colors = "green = normal, yellow = warning, red = critical"
+        let colors = String(localized: "green = normal, yellow = warning, red = critical")
         guard let p = store.memoryPressure else {
-            return "\(colors); the server hasn't reported one yet."
+            return String(localized: "\(colors); the server hasn't reported one yet.")
         }
         let now: String
         switch p {
         case "normal":
-            now = "normal — the Mac has memory to spare"
+            now = String(localized: "normal — the Mac has memory to spare")
         case "warning":
-            now = "warning — the system is under memory load; splash's requests may be slower or suspended"
+            now = String(localized: "warning — the system is under memory load; splash's requests may be slower or suspended")
         case "critical":
-            now = "critical — macOS is reclaiming memory aggressively; splash may refuse or drop requests until it eases off"
+            now = String(localized: "critical — macOS is reclaiming memory aggressively; splash may refuse or drop requests until it eases off")
         default:
-            now = "\(p)"
+            now = p
         }
-        return "\(colors); right now: \(now)."
+        return String(localized: "\(colors); right now: \(now).")
     }
 
     /// The Mac-RAM bar's color: the user's pick, except while the server's
@@ -659,7 +664,7 @@ struct MetricsView: View {
                 help: "Requests completed since splash started, plus any cancelled or failed.")
             if let fraction = store.prefillFraction {
                 // Same "6m 04s" shape as the ring's detail, not "364.3s".
-                let eta = store.prefillETASeconds.map { " · \(Fmt.eta($0)) left" } ?? ""
+                let eta = store.prefillETASeconds.map { String(localized: " · \(Fmt.eta($0)) left") } ?? ""
                 row("Prefill", "\(Int(fraction * 100))% · \(Fmt.int(store.prefillRemainingTokens)) tok" + eta,
                     help: "Progress of the prompt being processed now: % done · tokens remaining · estimated time left at the current prefill speed.")
             }
@@ -703,7 +708,7 @@ struct MetricsView: View {
         if let age = store.decodeAgeSeconds { s += " · " + Fmt.duration(age) }
         if let maxTok = store.decodeMaxTokens, let gen = store.decodeGeneratedTokens,
            maxTok > gen, let rate = store.liveTokensPerSecond, rate > 0 {
-            s += " · ~\(Fmt.eta(Double(maxTok - gen) / rate)) left"
+            s += String(localized: " · ~\(Fmt.eta(Double(maxTok - gen) / rate)) left")
         }
         return s
     }
@@ -711,11 +716,11 @@ struct MetricsView: View {
     /// "36%" while speculative decoding runs, "off" when the server reports
     /// no drafted tokens.
     private var draftSummary: String {
-        guard let d = store.draftedTokens, d > 0 else { return "off" }
+        guard let d = store.draftedTokens, d > 0 else { return String(localized: "off") }
         return Fmt.percent(store.draftAcceptance)
     }
 
-    private var draftHelp: String {
+    private var draftHelp: LocalizedStringKey {
         guard let d = store.draftedTokens, d > 0 else {
             return "Speculative decoding (a draft model proposing tokens ahead) is not in use: the server reports no drafted tokens, so the main model generates every token alone."
         }
@@ -723,9 +728,9 @@ struct MetricsView: View {
     }
 
     private var requestsSummary: String {
-        var s = Fmt.int(store.completedCount) + " done"
-        if let c = store.cancelledCount, c > 0 { s += " · \(c) cancelled" }
-        if let f = store.failedCount, f > 0 { s += " · \(f) failed" }
+        var s = String(localized: "\(Fmt.int(store.completedCount)) done")
+        if let c = store.cancelledCount, c > 0 { s += String(localized: " · \(c) cancelled") }
+        if let f = store.failedCount, f > 0 { s += String(localized: " · \(f) failed") }
         return s
     }
 
@@ -733,12 +738,12 @@ struct MetricsView: View {
         let d = store.decodingCount ?? 0
         let p = store.prefillingCount ?? 0
         let q = store.queuedCount ?? 0
-        if d == 0 && p == 0 && q == 0 { return "idle" }
-        var s = "\(d) decode · \(p) prefill · \(q) queued"
+        if d == 0 && p == 0 && q == 0 { return String(localized: "idle") }
+        var s = String(localized: "\(d) decode · \(p) prefill · \(q) queued")
         // How long the queue has been backed up (only when there is one).
         if q > 0 || (store.waitingResources ?? 0) > 0,
            let ms = store.oldestWaitMs, ms > 0 {
-            s += " · waiting \(Fmt.ms(ms))"
+            s += String(localized: " · waiting \(Fmt.ms(ms))")
         }
         return s
     }
@@ -748,7 +753,7 @@ struct MetricsView: View {
     private var memorySummary: String {
         guard let used = store.memoryUsedBytes else { return "—" }
         if let peak = store.memoryPeakBytes, peak > used {
-            return "\(Fmt.bytes(used)) · peak \(Fmt.bytes(peak))"
+            return String(localized: "\(Fmt.bytes(used)) · peak \(Fmt.bytes(peak))")
         }
         return Fmt.bytes(used)
     }
@@ -758,23 +763,20 @@ struct MetricsView: View {
     private var weightsSummary: String {
         var s = store.weightsLoadSeconds.map { Fmt.seconds($0) } ?? "—"
         if store.weightsRestoring {
-            s += " · reloading"
+            s += String(localized: " · reloading")
         } else if store.weightsReleased {
-            s += " · released"
+            s += String(localized: " · released")
         }
-        if store.weightsRestores > 0 { s += " · \(store.weightsRestores) restored" }
-        if store.weightsRestoreFailures > 0 { s += " · \(store.weightsRestoreFailures) failed" }
+        if store.weightsRestores > 0 { s += String(localized: " · \(store.weightsRestores) restored") }
+        if store.weightsRestoreFailures > 0 { s += String(localized: " · \(store.weightsRestoreFailures) failed") }
         return s
     }
 
-    private var weightsHelp: String {
-        var s = "How long loading the model weights took at startup, plus their lifecycle."
+    private var weightsHelp: LocalizedStringKey {
         if let idle = store.weightsIdleReleaseSeconds {
-            s += " splash releases the weights from memory after \(Int(idle)) s of idleness to give the RAM back,"
-        } else {
-            s += " splash can release the weights from memory after idleness to give the RAM back,"
+            return "How long loading the model weights took at startup, plus their lifecycle. splash releases the weights from memory after \(Int(idle)) s of idleness to give the RAM back, so the next request restores them (\"reloading\") and is slower."
         }
-        return s + " so the next request restores them (\"reloading\") and is slower."
+        return "How long loading the model weights took at startup, plus their lifecycle. splash can release the weights from memory after idleness to give the RAM back, so the next request restores them (\"reloading\") and is slower."
     }
 
     private var serverInfo: some View {
@@ -824,16 +826,15 @@ struct MetricsView: View {
         }
         var s = "\(Fmt.bytes(used)) / \(Fmt.bytes(limit))"
         let gated = store.diskWritesGated == true
-        if gated { s += " · writes gated" }
+        if gated { s += String(localized: " · writes gated") }
         return (s, gated)
     }
 
-    private var diskHelp: String {
-        var s = "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit."
+    private var diskHelp: LocalizedStringKey {
         if store.diskWritesGated == true {
-            s += " \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached."
+            return "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit. \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached."
         }
-        return s
+        return "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit."
     }
 
     /// "age 0 ms · tick 99 ms"; orange when the snapshot is stale (>2 s) or
@@ -842,7 +843,7 @@ struct MetricsView: View {
         let age = store.statusAgeMs
         let tick = store.maxTickMs
         let warn = (age.map { $0 > 2000 } ?? false) || (tick.map { $0 > 1500 } ?? false)
-        return ("age \(Fmt.ms(age)) · tick \(Fmt.ms(tick))", warn)
+        return (String(localized: "age \(Fmt.ms(age)) · tick \(Fmt.ms(tick))"), warn)
     }
 
     /// The Model row as a link: clicking opens the folder in the Hugging
@@ -870,7 +871,7 @@ struct MetricsView: View {
                 .buttonStyle(.plain)
             }
             .contentShape(Rectangle())
-            .help(modelHelp + " Click to open the folder where its files are stored in Finder.")
+            .help(modelLinkHelp)
         } else {
             row("Model", id, secondary: true,
                 help: modelHelp)
@@ -879,10 +880,19 @@ struct MetricsView: View {
 
     /// The Model row's tooltip: what's served, its (static) context window —
     /// the former Context row — and where to change it.
-    private var modelHelp: String {
+    private var modelHelp: LocalizedStringKey {
         let context = Fmt.context(store.maxContextTokens
                                   ?? parseContext(store.readyContext))
         return "The model splash is serving (Hugging Face repo:variant); context window \(context) tokens (prompt + output for one request). Change it in Settings."
+    }
+
+    /// The linked Model row's tooltip: the same text as `modelHelp` plus the
+    /// click behavior. A separate key (no LSK→String conversion exists) —
+    /// the sentence duplicates across the two keys by design.
+    private var modelLinkHelp: LocalizedStringKey {
+        let context = Fmt.context(store.maxContextTokens
+                                  ?? parseContext(store.readyContext))
+        return "The model splash is serving (Hugging Face repo:variant); context window \(context) tokens (prompt + output for one request). Change it in Settings. Click to open the folder where its files are stored in Finder."
     }
 
     /// The Endpoint row as a link: clicking opens splash's chat page in the
@@ -922,7 +932,7 @@ struct MetricsView: View {
         return Int(s)
     }
 
-    private func row(_ label: String, _ value: String, secondary: Bool = false, warn: Bool = false, help: String) -> some View {
+    private func row(_ label: LocalizedStringKey, _ value: String, secondary: Bool = false, warn: Bool = false, help: LocalizedStringKey) -> some View {
         HStack(spacing: 6) {
             Text(label)
                 .font(.system(size: 11))
@@ -987,7 +997,7 @@ struct MetricsView: View {
         .controlSize(.small)
     }
 
-    private func sectionLabel(_ text: String, help: String) -> some View {
+    private func sectionLabel(_ text: LocalizedStringKey, help: LocalizedStringKey) -> some View {
         Text(text)
             .font(.system(size: 9, weight: .semibold))
             .tracking(1.2)
@@ -1072,8 +1082,8 @@ struct RingGauge: View {
     let center: String
     /// Optional second line under `center`, e.g. a progress percentage.
     var detail: String? = nil
-    let caption: String
-    var help: String = ""
+    let caption: LocalizedStringKey
+    var help: LocalizedStringKey = ""
     /// Right-click opens the ring's color panel; nil disables the menu.
     var onOpenColorPanel: (() -> Void)? = nil
 
@@ -1126,8 +1136,8 @@ struct RingGauge: View {
 struct BarGauge: View {
     let value: Double?
     let color: Color
-    let caption: String
-    var help: String = ""
+    let caption: LocalizedStringKey
+    var help: LocalizedStringKey = ""
     /// Right-click opens the bar's color panel; nil disables the menu.
     var onOpenColorPanel: (() -> Void)? = nil
 

@@ -117,9 +117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let warning = configLoadWarning {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Couldn't read saved settings"
+            alert.messageText = String(localized: "Couldn't read saved settings")
             alert.informativeText = warning
-            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: String(localized: "OK"))
             DispatchQueue.main.async {
                 NSApp.activate(ignoringOtherApps: true)
                 alert.runModal()
@@ -562,8 +562,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func postCrashNotification(_ info: CrashInfo) {
         let content = UNMutableNotificationContent()
-        content.title = "splash exited"
-        content.body = "\(info.description) — the server is stopped."
+        content.title = String(localized: "splash exited")
+        content.body = String(localized: "\(info.description) — the server is stopped.")
         content.sound = .default
         content.categoryIdentifier = Self.crashCategoryID
         let request = UNNotificationRequest(identifier: Self.crashCategoryID,
@@ -592,8 +592,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 guard self.store.modelDownloadedThisStartup else { return }
                 self.store.modelDownloadedThisStartup = false
-                self.postNotification(title: "Model ready",
-                                      body: "\(model ?? "the model") finished downloading, is loaded and serving.")
+                self.postNotification(title: String(localized: "Model ready"),
+                                      body: String(localized: "\(model ?? String(localized: "the model")) finished downloading, is loaded and serving."))
             }
             .store(in: &cancellables)
 
@@ -604,11 +604,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, let state else { return }
                 switch state {
                 case "serious":
-                    self.postNotification(title: "Thermal: serious",
-                                          body: "The Mac is running hot (thermal state \"serious\"): the CPU and GPU are being throttled, so generation slows down.")
+                    self.postNotification(title: String(localized: "Thermal: serious"),
+                                          body: String(localized: "The Mac is running hot (thermal state \"serious\"): the CPU and GPU are being throttled, so generation slows down."))
                 case "critical":
-                    self.postNotification(title: "Thermal: critical",
-                                          body: "The Mac is overheating (thermal state \"critical\"): heavy throttling until it cools down.")
+                    self.postNotification(title: String(localized: "Thermal: critical"),
+                                          body: String(localized: "The Mac is overheating (thermal state \"critical\"): heavy throttling until it cools down."))
                 default:
                     break
                 }
@@ -620,8 +620,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .removeDuplicates()
             .sink { [weak self] released in
                 guard let self, released else { return }
-                self.postNotification(title: "splash released the model",
-                                      body: "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower.")
+                self.postNotification(title: String(localized: "splash released the model"),
+                                      body: String(localized: "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower."))
             }
             .store(in: &cancellables)
     }
@@ -774,22 +774,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case .quit:
             dismissPanel()
-            let info = proc.ownsRunningChild
-                ? "The splash server this app started will be stopped."
-                : "A splash server started outside the app keeps running."
-            guard confirm("Quit Splash Menu Bar?", info: info, button: "Quit") else { return }
+            let info: String = proc.ownsRunningChild
+                ? String(localized: "The splash server this app started will be stopped.")
+                : String(localized: "A splash server started outside the app keeps running.")
+            guard confirm(String(localized: "Quit Splash Menu Bar?"), info: info,
+                          button: String(localized: "Quit")) else { return }
             NSApp.terminate(nil)
         }
     }
 
     /// Asks the user to confirm a disruptive action; true if they agree.
+    /// Message, info and button arrive already localized (call sites use
+    /// String(localized:)) because LSK→String has no public conversion.
     private func confirm(_ message: String, info: String, button: String) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = message
         alert.informativeText = info
         alert.addButton(withTitle: button)
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "Cancel"))
         NSApp.activate(ignoringOtherApps: true)
         return alert.runModal() == .alertFirstButtonReturn
     }
@@ -909,19 +912,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "splash is not installed"
+        alert.messageText = String(localized: "splash is not installed")
         if brew != nil {
-            alert.informativeText = """
+            alert.informativeText = String(localized: """
             Splash Menu Bar needs the `splash` command-line tool to run the server.
 
             Install it yourself with:
                 \(SplashInstaller.installCommand)
 
             or let Splash Menu Bar run that command for you now.
-            """
-            alert.addButton(withTitle: "Install with Homebrew")
+            """)
+            alert.addButton(withTitle: String(localized: "Install with Homebrew"))
         } else {
-            alert.informativeText = """
+            alert.informativeText = String(localized: """
             Splash Menu Bar needs the `splash` command-line tool to run the server, \
             and Homebrew wasn't found to install it.
 
@@ -929,10 +932,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 \(SplashInstaller.installCommand)
 
             Afterwards, press Start in the menu bar flyout.
-            """
+            """)
         }
-        alert.addButton(withTitle: "Copy Command")
-        alert.addButton(withTitle: "Not Now")
+        alert.addButton(withTitle: String(localized: "Copy Command"))
+        alert.addButton(withTitle: String(localized: "Not Now"))
 
         NSApp.activate(ignoringOtherApps: true)
         let response = alert.runModal()
@@ -957,7 +960,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         let w = NSWindow(contentViewController: NSHostingController(rootView: view))
-        w.title = "Splash Menu Bar — Install splash"
+        w.title = String(localized: "Splash Menu Bar — Install splash")
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
         w.delegate = self
@@ -1001,15 +1004,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard store.updateAvailable else { return }
         let latest = store.latestVersion ?? "?"
         let current = store.installedVersion ?? "?"
-        guard confirm("Update splash to \(latest)?",
-                      info: "You have splash \(current). This runs:\n    brew upgrade \(SplashInstaller.formula)\nA progress window shows what Homebrew is doing.",
-                      button: "Update") else { return }
+        guard confirm(String(localized: "Update splash to \(latest)?"),
+                      info: String(localized: "You have splash \(current). This runs:\n    brew upgrade \(SplashInstaller.formula)\nA progress window shows what Homebrew is doing."),
+                      button: String(localized: "Update")) else { return }
         guard let brew = SplashInstaller.brewPath else {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Homebrew not found"
-            alert.informativeText = "The update needs Homebrew to run:\n    brew upgrade \(SplashInstaller.formula)"
-            alert.addButton(withTitle: "OK")
+            alert.messageText = String(localized: "Homebrew not found")
+            alert.informativeText = String(localized: "The update needs Homebrew to run:\n    brew upgrade \(SplashInstaller.formula)")
+            alert.addButton(withTitle: String(localized: "OK"))
             NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
             return
@@ -1027,15 +1030,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // The running server (if any) still uses the old binary until it
             // restarts; a stopped server picks the new version up on Start.
             guard self.store.effectiveRunning,
-                  self.confirm("Restart the splash server?",
-                               info: "splash was updated, but the running server still uses the old version until it restarts. Requests in progress are cancelled.",
-                               button: "Restart") else { return }
+                  self.confirm(String(localized: "Restart the splash server?"),
+                               info: String(localized: "splash was updated, but the running server still uses the old version until it restarts. Requests in progress are cancelled."),
+                               button: String(localized: "Restart")) else { return }
             self.store.resetForRestart()
             self.store.serverPort = nil   // ours restarts on the configured port
             self.proc.restart(with: self.config)
         }
         let w = NSWindow(contentViewController: NSHostingController(rootView: view))
-        w.title = "Splash Menu Bar — Update splash"
+        w.title = String(localized: "Splash Menu Bar — Update splash")
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
         w.delegate = self
@@ -1071,9 +1074,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let brew = SplashInstaller.brewPath else {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Homebrew not found"
-            alert.informativeText = "The update needs Homebrew to run:\n    \(AppUpdater.updateCommandLine)"
-            alert.addButton(withTitle: "OK")
+            alert.messageText = String(localized: "Homebrew not found")
+            alert.informativeText = String(localized: "The update needs Homebrew to run:\n    \(AppUpdater.updateCommandLine)")
+            alert.addButton(withTitle: String(localized: "OK"))
             NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
             return
@@ -1082,9 +1085,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard AppUpdater.isInstalledViaHomebrew(brew: brew) else {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Not installed through Homebrew"
-            alert.informativeText = "This copy of Splash Menu Bar isn't a Homebrew install, so brew can't update it.\nInstall it once with:\n    \(AppUpdater.installCommand)\nor download the new release from GitHub."
-            alert.addButton(withTitle: "OK")
+            alert.messageText = String(localized: "Not installed through Homebrew")
+            alert.informativeText = String(localized: "This copy of Splash Menu Bar isn't a Homebrew install, so brew can't update it.\nInstall it once with:\n    \(AppUpdater.installCommand)\nor download the new release from GitHub.")
+            alert.addButton(withTitle: String(localized: "OK"))
             NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
             return
@@ -1092,9 +1095,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let commands = AppUpdater.updateCommands
             .map { "    brew " + $0.joined(separator: " ") }
             .joined(separator: "\n")
-        guard confirm("Update Splash Menu Bar to \(latest)?",
-                      info: "You have \(current). This runs:\n\(commands)\nA progress window shows what Homebrew is doing; the app relaunches afterwards.",
-                      button: "Update") else { return }
+        guard confirm(String(localized: "Update Splash Menu Bar to \(latest)?"),
+                      info: String(localized: "You have \(current). This runs:\n\(commands)\nA progress window shows what Homebrew is doing; the app relaunches afterwards."),
+                      button: String(localized: "Update")) else { return }
         runAppUpdate(brew: brew)
     }
 
@@ -1106,13 +1109,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.closeInstallWindow()
             self.store.appLatestVersion = nil
             guard updated else { return }
-            guard self.confirm("Restart Splash Menu Bar?",
-                               info: "The new version starts now; anything in progress in this one is lost.",
-                               button: "Restart") else { return }
+            guard self.confirm(String(localized: "Restart Splash Menu Bar?"),
+                               info: String(localized: "The new version starts now; anything in progress in this one is lost."),
+                               button: String(localized: "Restart")) else { return }
             self.relaunchApp()
         }
         let w = NSWindow(contentViewController: NSHostingController(rootView: view))
-        w.title = "Splash Menu Bar — Update app"
+        w.title = String(localized: "Splash Menu Bar — Update app")
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
         w.delegate = self
@@ -1134,7 +1137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 if let error {
                     let alert = NSAlert()
-                    alert.messageText = "Couldn't relaunch Splash Menu Bar"
+                    alert.messageText = String(localized: "Couldn't relaunch Splash Menu Bar")
                     alert.informativeText = error.localizedDescription
                     alert.runModal()
                     return
@@ -1197,7 +1200,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let error = syncLaunchAtLogin(new.launchAtLogin) {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Couldn't \(new.launchAtLogin ? "enable" : "turn off") launch at login"
+            let message: String = new.launchAtLogin
+                ? String(localized: "Couldn't enable launch at login")
+                : String(localized: "Couldn't turn off launch at login")
+            alert.messageText = message
             alert.informativeText = error.localizedDescription
             NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
@@ -1223,11 +1229,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !new.save() {
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = "Couldn't save settings"
-                alert.informativeText = "The changes apply for this session, but the config file couldn't be written: "
-                    + (new.saveError ?? "unknown error")
-                    + ". They'll be lost when the app quits."
-                alert.addButton(withTitle: "OK")
+                alert.messageText = String(localized: "Couldn't save settings")
+                alert.informativeText = String(localized: "The changes apply for this session, but the config file couldn't be written: \(new.saveError ?? "unknown error"). They'll be lost when the app quits.")
+                alert.addButton(withTitle: String(localized: "OK"))
                 NSApp.activate(ignoringOtherApps: true)
                 alert.runModal()
             }
@@ -1263,7 +1267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.closeModelManageWindow()
         }
         let w = NSWindow(contentViewController: NSHostingController(rootView: view))
-        w.title = "Splash Menu Bar — Manage models"
+        w.title = String(localized: "Splash Menu Bar — Manage models")
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
         w.delegate = self

@@ -123,17 +123,17 @@ final class InstallModel: ObservableObject {
 
     var runningTitle: String {
         switch job {
-        case .installSplash: return "Installing splash with Homebrew…"
-        case .upgradeSplash: return "Updating splash with Homebrew…"
-        case .updateApp: return "Updating Splash Menu Bar with Homebrew…"
+        case .installSplash: return String(localized: "Installing splash with Homebrew…")
+        case .upgradeSplash: return String(localized: "Updating splash with Homebrew…")
+        case .updateApp: return String(localized: "Updating Splash Menu Bar with Homebrew…")
         }
     }
 
     var doneTitle: String {
         switch job {
-        case .installSplash: return "splash is installed"
-        case .upgradeSplash: return "splash is updated"
-        case .updateApp: return "Splash Menu Bar is updated"
+        case .installSplash: return String(localized: "splash is installed")
+        case .upgradeSplash: return String(localized: "splash is updated")
+        case .updateApp: return String(localized: "Splash Menu Bar is updated")
         }
     }
 

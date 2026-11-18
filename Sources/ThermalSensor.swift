@@ -80,9 +80,9 @@ enum TemperatureUnit: String, Codable, CaseIterable, Identifiable {
     /// The picker's label for this unit.
     var label: String {
         switch self {
-        case .system: return "System (region)"
-        case .fahrenheit: return "Fahrenheit (°F)"
-        case .celsius: return "Celsius (°C)"
+        case .system: return String(localized: "System (region)")
+        case .fahrenheit: return String(localized: "Fahrenheit (°F)")
+        case .celsius: return String(localized: "Celsius (°C)")
         }
     }
 
