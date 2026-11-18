@@ -18,7 +18,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 RES = ROOT / "Resources"
 EN = RES / "en.lproj"
 
-SPEC = re.compile(r"%\@|%lld|%d")
+# Unnumbered forms plus numbered ones (%1$lld, %2$@) used to keep the
+# English argument order when a translation reorders the phrases.
+SPEC = re.compile(r"%\d+\$[@a-zA-Z]|%\@|%lld|%d")
 
 
 def unescape(s: str) -> str:

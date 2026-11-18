@@ -4,7 +4,7 @@
 // into <lang>.lproj/Localizable.strings and replacing the values.
 
 "DECODE SPEED · TOK/S" = "解碼速度 · TOK/S";
-"Decode speed (tok/s): the last %lld samples taken while a request is generating, every %@ (span and UI refresh in Settings). Samples are evenly spaced by count, not by wall-clock time — idle gaps don't stretch them. The dotted line is the average of the samples shown. Right-click to pick the line's color." = "解碼速度（tok/s）：請求生成期間按每 %@ 採樣（採樣跨度與 UI 刷新在「設定」中配置），記錄的是最近 %lld 個樣本。樣本按數量均勻分佈，而不是按時間 — 空閒間隔不會把它們拉長。虛線是所顯示樣本的平均值。右鍵可選擇線條顏色。";
+"Decode speed (tok/s): the last %lld samples taken while a request is generating, every %@ (span and UI refresh in Settings). Samples are evenly spaced by count, not by wall-clock time — idle gaps don't stretch them. The dotted line is the average of the samples shown. Right-click to pick the line's color." = "解碼速度（tok/s）：請求生成期間按每 %2$@ 採樣（採樣跨度與 UI 刷新在「設定」中配置），記錄的是最近 %1$lld 個樣本。樣本按數量均勻分佈，而不是按時間 — 空閒間隔不會把它們拉長。虛線是所顯示樣本的平均值。右鍵可選擇線條顏色。";
 "LAST REQUEST" = "最近請求";
 "Figures for the most recently finished request, from splash's Done log line." = "最近一次已完成請求的資料，來自 splash 的 Done 日誌行。";
 "LOAD" = "負載";
