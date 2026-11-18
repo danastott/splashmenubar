@@ -36,6 +36,9 @@ final class SettingsModel: ObservableObject {
     @Published var launchAtLogin: Bool
     @Published var theme: UITheme
     @Published var temperatureUnit: TemperatureUnit
+    /// UI language choice ("" = system); persisted to app defaults, not to
+    /// the server config.
+    @Published var language: String
     /// True once "Reset to defaults" was pressed, so a following Save also
     /// clears the flyout gauge colors (which the form doesn't edit itself).
     private var didResetToDefaults = false
@@ -123,6 +126,7 @@ final class SettingsModel: ObservableObject {
         launchAtLogin = config.launchAtLogin
         theme = config.theme
         temperatureUnit = config.temperatureUnit
+        language = AppLanguage.selected()
 
         // Scanning the Hugging Face cache walks and resolves every snapshot
         // file, so keep it off the main thread.
@@ -234,6 +238,7 @@ final class SettingsModel: ObservableObject {
         startServerOnLaunch = d.startServerOnLaunch
         launchAtLogin = d.launchAtLogin
         theme = d.theme
+        language = ""
         didResetToDefaults = true
     }
 
@@ -283,11 +288,27 @@ struct SettingsView: View {
                 Spacer()
                 Button("Cancel", action: onDismiss)
                     .help("Close without saving.")
-                Button("Save", action: { onSave(settings.asConfig) })
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!settings.isValid)
-                    .help("Save these options to ~/.splashmenubar.json and restart splash with them.")
+                Button("Save", action: {
+                    let languageChanged = AppLanguage.selected() != settings.language
+                    AppLanguage.persist(settings.language)
+                    onSave(settings.asConfig)
+                    if languageChanged {
+                        // The choice is persisted, but macOS reads the app's
+                        // language at launch, so offer the relaunch.
+                        let alert = NSAlert()
+                        alert.messageText = String(localized: "Relaunch to apply the language?")
+                        alert.informativeText = String(localized: "The new language takes effect when Splash Menu Bar relaunches. The splash server keeps running.")
+                        alert.addButton(withTitle: String(localized: "Relaunch Now"))
+                        alert.addButton(withTitle: String(localized: "Later"))
+                        if alert.runModal() == .alertFirstButtonReturn {
+                            AppDelegate.shared?.relaunch()
+                        }
+                    }
+                })
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!settings.isValid)
+                .help("Save these options to ~/.splashmenubar.json and restart splash with them.")
             }
             .padding(12)
         }
@@ -439,6 +460,13 @@ struct SettingsView: View {
     private var appPane: some View {
         Form {
             Section {
+                Picker("Language", selection: $settings.language) {
+                    Text("System (\(AppLanguage.systemLanguageName))").tag("")
+                    ForEach(AppLanguage.supported, id: \.code) { option in
+                        Text(option.name).tag(option.code)
+                    }
+                }
+                .help("The app's UI language. System (the default) follows the computer's language — System Settings → General → Language & Region — and falls back to English when the system language isn't supported. Saving a different language relaunches the app to apply it; the splash server keeps running.")
                 Picker("UI refresh", selection: $settings.refreshInterval) {
                     ForEach(SplashConfig.refreshIntervalChoices, id: \.self) { v in
                         Text(v < 1 ? "\(Int(v * 1000)) ms"

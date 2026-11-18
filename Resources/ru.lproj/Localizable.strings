@@ -362,3 +362,10 @@
 "The changes apply for this session, but the config file couldn't be written: %@. They'll be lost when the app quits." = "Изменения применятся до конца этой сессии, но файл конфигурации не удалось записать: %@. Они будут потеряны при выходе из приложения.";
 "Splash Menu Bar — Manage models" = "Splash Menu Bar — Управление моделями";
 "Update" = "Обновить";
+"Language" = "Язык";
+"System (%@)" = "Система (%@)";
+"Relaunch Now" = "Перезапустить сейчас";
+"Later" = "Позже";
+"Relaunch to apply the language?" = "Перезапустить, чтобы применить язык?";
+"The new language takes effect when Splash Menu Bar relaunches. The splash server keeps running." = "Новый язык вступит в силу после перезапуска Splash Menu Bar. Сервер splash продолжит работу.";
+"The app's UI language. System (the default) follows the computer's language — System Settings → General → Language & Region — and falls back to English when the system language isn't supported. Saving a different language relaunches the app to apply it; the splash server keeps running." = "Язык интерфейса приложения. Система (по умолчанию) следует языку компьютера — «Системные настройки» → «Основные» → «Язык и регион» — и переключается на английский, если язык системы не поддерживается. Сохранение другого языка перезапускает приложение для применения; сервер splash продолжит работу.";

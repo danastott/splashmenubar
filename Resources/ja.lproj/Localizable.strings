@@ -362,3 +362,10 @@
 "The changes apply for this session, but the config file couldn't be written: %@. They'll be lost when the app quits." = "変更はこのセッションでは適用されますが、設定ファイルに書き込めませんでした:%@。アプリを終了すると失われます。";
 "Splash Menu Bar — Manage models" = "Splash Menu Bar — モデルを管理";
 "Update" = "更新";
+"Language" = "言語";
+"System (%@)" = "システム（%@）";
+"Relaunch Now" = "今すぐ再起動";
+"Later" = "後で";
+"Relaunch to apply the language?" = "言語を適用するには再起動しますか？";
+"The new language takes effect when Splash Menu Bar relaunches. The splash server keeps running." = "新しい言語は Splash Menu Bar の再起動後に有効になります。splash サーバーはそのまま実行され続けます。";
+"The app's UI language. System (the default) follows the computer's language — System Settings → General → Language & Region — and falls back to English when the system language isn't supported. Saving a different language relaunches the app to apply it; the splash server keeps running." = "アプリの UI 言語。システム（既定）はコンピューターの言語に続きます（システム設定 → 一般 → 言語と地域）。システム言語がサポートされていない場合は英語になります。他の言語を保存すると、適用のためアプリが再起動されます。splash サーバーは実行を続けます。";

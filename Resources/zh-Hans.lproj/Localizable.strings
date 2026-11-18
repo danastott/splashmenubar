@@ -362,3 +362,10 @@
 "The changes apply for this session, but the config file couldn't be written: %@. They'll be lost when the app quits." = "更改仅在本次会话中生效,但配置文件无法写入:%@。退出应用时这些更改将丢失。";
 "Splash Menu Bar — Manage models" = "Splash Menu Bar — 管理模型";
 "Update" = "更新";
+"Language" = "语言";
+"System (%@)" = "系统（%@）";
+"Relaunch Now" = "立即重新启动";
+"Later" = "稍后";
+"Relaunch to apply the language?" = "重新启动以应用语言？";
+"The new language takes effect when Splash Menu Bar relaunches. The splash server keeps running." = "新语言将在 Splash Menu Bar 重新启动后生效。splash 服务器将继续运行。";
+"The app's UI language. System (the default) follows the computer's language — System Settings → General → Language & Region — and falls back to English when the system language isn't supported. Saving a different language relaunches the app to apply it; the splash server keeps running." = "应用界面语言。系统（默认）跟随电脑的语言 — 系统设置 → 通用 → 语言与地区 — 系统语言不受支持时回退到英语。保存其他语言后会重新启动应用以应用；splash 服务器继续运行。";

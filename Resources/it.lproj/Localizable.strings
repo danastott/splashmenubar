@@ -363,3 +363,10 @@
 "The changes apply for this session, but the config file couldn't be written: %@. They'll be lost when the app quits." = "Le modifiche valgono per questa sessione, ma il file di configurazione non può essere scritto: %@. Andranno perse quando l'app verrà chiusa.";
 "Splash Menu Bar — Manage models" = "Splash Menu Bar — Gestisci modelli";
 "Update" = "Aggiorna";
+"Language" = "Lingua";
+"System (%@)" = "Sistema (%@)";
+"Relaunch Now" = "Riavvia ora";
+"Later" = "Più tardi";
+"Relaunch to apply the language?" = "Riavviare per applicare la lingua?";
+"The new language takes effect when Splash Menu Bar relaunches. The splash server keeps running." = "La nuova lingua avrà effetto quando Splash Menu Bar verrà riavviata. Il server splash continua a funzionare.";
+"The app's UI language. System (the default) follows the computer's language — System Settings → General → Language & Region — and falls back to English when the system language isn't supported. Saving a different language relaunches the app to apply it; the splash server keeps running." = "La lingua dell'interfaccia dell'app. Sistema (predefinito) segue la lingua del computer — Impostazioni di Sistema → Generali → Lingua e area geografica — e ricade sull'inglese se la lingua di sistema non è supportata. Salvare un'altra lingua riavvia l'app per applicarla; il server splash continua a funzionare.";

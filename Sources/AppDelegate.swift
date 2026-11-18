@@ -1127,6 +1127,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.start(brew: brew)
     }
 
+    /// Relaunches the app (the updater and the language picker). A running
+    /// splash server survives: it reparents to launchd and the new instance
+    /// picks it up on the configured port.
+    func relaunch() {
+        relaunchApp()
+    }
+
     /// brew replaced the bundle in place, so launching the same path runs
     /// the new version; terminate this instance once it is up.
     private func relaunchApp() {

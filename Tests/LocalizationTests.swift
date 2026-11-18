@@ -77,4 +77,42 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(Plural.category(2, locale: Locale(identifier: "ja_JP")), "other")
         XCTAssertEqual(Plural.category(2, locale: Locale(identifier: "zh_CN")), "other")
     }
+
+    /// The picker persists into the app-domain AppleLanguages default (the
+    /// per-app language mechanism macOS reads at launch); "System" clears
+    /// it. (Assert on the suite's own persistent domain: a named suite
+    /// cascades to the global domain, which carries the system's own
+    /// AppleLanguages.)
+    /// "System" resolves to a shipped language: the first of the system's
+    /// preferred languages the app ships, else English.
+    func testSystemLanguageName() {
+        let name = AppLanguage.systemLanguageName
+        XCTAssertTrue(AppLanguage.displayNames.contains { $0.name == name },
+                      "system language should resolve to a shipped name, got \(name)")
+        // Matching: region suffixes drop, exact codes win, no match → nil.
+        XCTAssertEqual(AppLanguage.match("en-US", in: ["en", "de"]), "en")
+        XCTAssertEqual(AppLanguage.match("zh-Hans-CN", in: ["en", "zh-Hans"]), "zh-Hans")
+        XCTAssertEqual(AppLanguage.match("pt-BR", in: ["pt-BR"]), "pt-BR")
+        XCTAssertNil(AppLanguage.match("nl-NL", in: ["en", "de"]))
+    }
+
+    func testAppLanguagePersist() {
+        let suite = "test.applanguage.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        defer { d.removePersistentDomain(forName: suite) }
+        func domainValue() -> Any? {
+            d.persistentDomain(forName: suite)?["AppleLanguages"]
+        }
+
+        XCTAssertEqual(AppLanguage.selected(defaults: d), "")
+        XCTAssertNil(domainValue())
+
+        AppLanguage.persist("ja", defaults: d)
+        XCTAssertEqual(AppLanguage.selected(defaults: d), "ja")
+        XCTAssertEqual(domainValue() as? [String], ["ja"])
+
+        AppLanguage.persist("", defaults: d)
+        XCTAssertEqual(AppLanguage.selected(defaults: d), "")
+        XCTAssertNil(domainValue())
+    }
 }
