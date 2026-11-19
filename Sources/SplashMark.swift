@@ -1,11 +1,11 @@
-// Ported from incoai/splash app/Sources/Splash/Mark.swift (Apache-2.0) so the
-// menu bar icon matches the Splash app's own.
+// Ported from incoai/splash app/Sources/Splash/Mark.swift (Apache-2.0), mirrored
+// left-to-right so the menu bar icon matches this app's icon.
 
 import AppKit
 import SwiftUI
 
 /// Splash's mark, as the app icon draws it (app/AppIcon.icon/Assets/mark.svg): three arcs of water
-/// springing from one point of a rippled surface, two thrown to the right and one to the left, each
+/// springing from one point of a rippled surface, two thrown to the left and one to the right, each
 /// throwing a drop. `spread` is how far the splash has risen, from 0, the surface alone, to 1, the
 /// icon's pose; the mark keeps its place and size at every spread.
 struct SplashMark: Shape {
@@ -18,20 +18,20 @@ struct SplashMark: Shape {
 
     // On the icon's 1024-point canvas, drawn in strokes 76 points wide with round ends.
     private static let surface = Path { path in
-        path.move(to: CGPoint(x: 200, y: 717.2))
-        path.addCurve(to: CGPoint(x: 398, y: 717.2), control1: CGPoint(x: 270, y: 699.2), control2: CGPoint(x: 340, y: 699.2))
-        path.addCurve(to: CGPoint(x: 606, y: 717.2), control1: CGPoint(x: 444, y: 733.2), control2: CGPoint(x: 560, y: 733.2))
-        path.addCurve(to: CGPoint(x: 824, y: 717.2), control1: CGPoint(x: 670, y: 699.2), control2: CGPoint(x: 744, y: 699.2))
+        path.move(to: CGPoint(x: 824, y: 717.2))
+        path.addCurve(to: CGPoint(x: 626, y: 717.2), control1: CGPoint(x: 754, y: 699.2), control2: CGPoint(x: 684, y: 699.2))
+        path.addCurve(to: CGPoint(x: 418, y: 717.2), control1: CGPoint(x: 580, y: 733.2), control2: CGPoint(x: 464, y: 733.2))
+        path.addCurve(to: CGPoint(x: 200, y: 717.2), control1: CGPoint(x: 354, y: 699.2), control2: CGPoint(x: 280, y: 699.2))
     }
 
     /// Each arc, from its root in the surface, and the drop it throws.
     private static let arcs: [(arc: Path, drop: CGPoint, radius: CGFloat)] = [
-        (arc(CGPoint(x: 502, y: 711.2), CGPoint(x: 500, y: 593.2), CGPoint(x: 534, y: 471.2), CGPoint(x: 604, y: 399.2)),
-         CGPoint(x: 684.3, y: 312.8), 36),
-        (arc(CGPoint(x: 516, y: 711.2), CGPoint(x: 544, y: 633.2), CGPoint(x: 606, y: 567.2), CGPoint(x: 700, y: 547.2)),
-         CGPoint(x: 805.2, y: 522.6), 30),
-        (arc(CGPoint(x: 490, y: 711.2), CGPoint(x: 466, y: 653.2), CGPoint(x: 424, y: 621.2), CGPoint(x: 364, y: 609.2)),
-         CGPoint(x: 267.2, y: 588.4), 25),
+        (arc(CGPoint(x: 522, y: 711.2), CGPoint(x: 524, y: 593.2), CGPoint(x: 490, y: 471.2), CGPoint(x: 420, y: 399.2)),
+         CGPoint(x: 339.7, y: 312.8), 36),
+        (arc(CGPoint(x: 508, y: 711.2), CGPoint(x: 480, y: 633.2), CGPoint(x: 418, y: 567.2), CGPoint(x: 324, y: 547.2)),
+         CGPoint(x: 218.8, y: 522.6), 30),
+        (arc(CGPoint(x: 534, y: 711.2), CGPoint(x: 558, y: 653.2), CGPoint(x: 600, y: 621.2), CGPoint(x: 660, y: 609.2)),
+         CGPoint(x: 756.8, y: 588.4), 25),
     ]
 
     /// The icon's pose, by which the mark is placed.
