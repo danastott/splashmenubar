@@ -4,11 +4,17 @@ import AppKit
 enum MenuAction {
     case start, stop, restart, settings, quit, togglePin, dismissSetupTip, update,
          updateApp
+    /// Pick the served model from the flyout's Model menu.
+    case switchModel(String)
 }
 
 struct MetricsView: View {
     @ObservedObject var store: MetricsStore
     let config: SplashConfig
+    /// The app's settings form: the Model menu reads its scanned model
+    /// choices and sizes from it (same instance the Settings window binds
+    /// to, so both stay in step).
+    @ObservedObject var settings: SettingsModel
     /// When set, the body scrolls and the whole view is this height.
     var maxHeight: CGFloat? = nil
     let onAction: (MenuAction) -> Void
@@ -781,7 +787,7 @@ struct MetricsView: View {
 
     private var serverInfo: some View {
         VStack(spacing: 4) {
-            modelLink
+            modelMenu
             if !store.inputModalities.isEmpty {
                 row("Input", store.inputModalities.joined(separator: " · "),
                     help: "Input types this server accepts in prompts.")
@@ -846,53 +852,101 @@ struct MetricsView: View {
         return (String(localized: "age \(Fmt.ms(age)) · tick \(Fmt.ms(tick))"), warn)
     }
 
-    /// The Model row as a link: clicking opens the folder in the Hugging
-    /// Face cache where the model's files are stored. Plain (unlinked) row
-    /// when the repo isn't in the cache — nothing to open yet.
-    @ViewBuilder
-    private var modelLink: some View {
+    /// The Model row as a menu: picking another model switches the served
+    /// model (the server restarts with it), "Open in Finder" opens the
+    /// model's folder in the Hugging Face cache (when the repo is in it),
+    /// and "Custom…" opens Settings to type any OWNER/REPO[:VARIANT].
+    private var modelMenu: some View {
         let id = store.modelFromStatus ?? store.readyModel ?? config.model
         let url = SplashModels.storageURL(for: id)
-        if let url {
+        return Menu {
+            if let url {
+                Button("Open in Finder") { NSWorkspace.shared.open(url) }
+                    .help("Open the folder in the Hugging Face cache where the model's files are stored.")
+                Divider()
+            }
+            modelChoicesMenu(current: id)
+            Divider()
+            Button("Custom…") { onAction(.settings) }
+                .help("Type any OWNER/REPO[:VARIANT] model in Settings.")
+        } label: {
             HStack(spacing: 6) {
                 Text("Model")
                     .font(.system(size: 11))
                 Spacer()
-                Button {
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    Text(id)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(.blue)
-                        .underline()
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .buttonStyle(.plain)
+                Text(id)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(.secondary)
             }
             .contentShape(Rectangle())
-            .help(modelLinkHelp)
-        } else {
-            row("Model", id, secondary: true,
-                help: modelHelp)
+        }
+        // The default menu style: borderlessButton collapses the label to
+        // "⌄ Model" (the Spacer loses its width), the default keeps the
+        // full row with a subtle pill background.
+        .menuIndicator(.hidden)
+        .frame(maxWidth: .infinity)
+        .help(modelMenuHelp)
+    }
+
+    /// The model choices in the Model menu, grouped as the Settings picker
+    /// is: Downloaded (with the size on disk) first, then Not downloaded
+    /// (with the download size). The served model gets a checkmark and is
+    /// disabled — it is already the served one.
+    @ViewBuilder
+    private func modelChoicesMenu(current: String) -> some View {
+        let downloaded = settings.modelChoices.filter {
+            settings.downloadedSizes[$0.id] != nil
+        }
+        let available = settings.modelChoices.filter {
+            settings.downloadedSizes[$0.id] == nil
+        }
+        if !downloaded.isEmpty {
+            Section("Downloaded") {
+                ForEach(downloaded) { m in
+                    Button {
+                        onAction(.switchModel(m.id))
+                    } label: {
+                        if m.id == current {
+                            Label {
+                                Text("\(m.label) — \(Fmt.bytes(Int(settings.downloadedSizes[m.id] ?? 0)))")
+                            } icon: {
+                                Image(systemName: "checkmark")
+                            }
+                        } else {
+                            Text("\(m.label) — \(Fmt.bytes(Int(settings.downloadedSizes[m.id] ?? 0)))")
+                        }
+                    }
+                    .disabled(m.id == current)
+                }
+            }
+        }
+        if !available.isEmpty {
+            Section("Not downloaded") {
+                ForEach(available) { m in
+                    Button {
+                        onAction(.switchModel(m.id))
+                    } label: {
+                        if let gb = m.downloadGB {
+                            Text("\(m.label) · \(gb) GB")
+                        } else {
+                            Text(m.label)
+                        }
+                    }
+                }
+            }
         }
     }
 
-    /// The Model row's tooltip: what's served, its (static) context window —
-    /// the former Context row — and where to change it.
-    private var modelHelp: LocalizedStringKey {
+    /// The Model menu's tooltip: what's served, its (static) context window
+    /// — the former Context row — and what clicking the row offers.
+    private var modelMenuHelp: LocalizedStringKey {
         let context = Fmt.context(store.maxContextTokens
                                   ?? parseContext(store.readyContext))
-        return "The model splash is serving (Hugging Face repo:variant); context window \(context) tokens (prompt + output for one request). Change it in Settings."
-    }
-
-    /// The linked Model row's tooltip: the same text as `modelHelp` plus the
-    /// click behavior. A separate key (no LSK→String conversion exists) —
-    /// the sentence duplicates across the two keys by design.
-    private var modelLinkHelp: LocalizedStringKey {
-        let context = Fmt.context(store.maxContextTokens
-                                  ?? parseContext(store.readyContext))
-        return "The model splash is serving (Hugging Face repo:variant); context window \(context) tokens (prompt + output for one request). Change it in Settings. Click to open the folder where its files are stored in Finder."
+        return "The model splash is serving (Hugging Face repo:variant); context window \(context) tokens (prompt + output for one request). Click to switch model — the server restarts with it — or open the model's folder in Finder; Custom… opens Settings."
     }
 
     /// The Endpoint row as a link: clicking opens splash's chat page in the

@@ -553,7 +553,7 @@ struct SettingsView: View {
                 Section("Not downloaded") {
                     ForEach(available) { m in
                         if let gb = m.downloadGB {
-                            Text("\(m.label) · \(gb) GB download").tag(m.id)
+                            Text("\(m.label) · \(gb) GB").tag(m.id)
                         } else {
                             Text(m.label).tag(m.id)
                         }

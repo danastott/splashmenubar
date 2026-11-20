@@ -59,6 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var panel: MetricsPanel?
     private var panelVisible = false
+    /// Set before closing the panel so windowWillClose doesn't reopen it.
+    private var deferPanelReopen = false
     private var panelHosting: NSHostingView<MetricsView>?
     private var panelScrolls = false
     private var localMonitor: Any?
@@ -395,14 +397,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.openGaugeColorPanel(id: id)
         }
         let plain = NSHostingView(rootView: MetricsView(
-            store: store, config: config, onAction: handler,
+            store: store, config: config, settings: settingsModel,
+            onAction: handler,
             onOpenGaugeColorPanel: colorPanelHandler))
         let fitting = plain.fittingSize
         let maxH = visible.height - 8
         let hosting: NSHostingView<MetricsView>
         if fitting.height > maxH {
             hosting = NSHostingView(rootView: MetricsView(
-                store: store, config: config, maxHeight: maxH,
+                store: store, config: config, settings: settingsModel,
+                maxHeight: maxH,
                 onAction: handler, onOpenGaugeColorPanel: colorPanelHandler))
         } else {
             hosting = plain
@@ -748,6 +752,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .settings:
             dismissPanel()
             openSettings()
+        case .switchModel(let id):
+            dismissPanel()
+            switchModel(to: id)
         case .update:
             dismissPanel()
             updateSplash()
@@ -963,7 +970,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         w.title = String(localized: "Splash Menu Bar — Install splash")
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
-        w.delegate = self
         w.center()
         installModel = model
         installWindow = w
@@ -1041,7 +1047,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         w.title = String(localized: "Splash Menu Bar — Update splash")
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
-        w.delegate = self
         w.center()
         installModel = model
         installWindow = w
@@ -1118,7 +1123,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         w.title = String(localized: "Splash Menu Bar — Update app")
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
-        w.delegate = self
         w.center()
         installModel = model
         installWindow = w
@@ -1260,9 +1264,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dismissSettings()
     }
 
+    /// The flyout's Model menu: persist the new `--model`, and when a
+    /// server is up, confirm and restart it with the new model (the same
+    /// restart the Restart button does, with the model swapped in). With
+    /// no server up the switch only updates what the next Start uses.
+    private func switchModel(to id: String) {
+        guard id != config.model else { return }
+        let running = store.effectiveRunning
+        var new = config
+        new.model = id
+        if running {
+            let label = settingsModel.modelChoices.first { $0.id == id }?.label ?? id
+            guard confirm(String(localized: "Switch the splash model to \(label)?"),
+                          info: String(localized: "The server restarts with it; requests in progress are cancelled."),
+                          button: String(localized: "Switch")) else { return }
+        }
+        config = new
+        if !new.save() {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "Couldn't save settings")
+            alert.informativeText = String(localized: "The changes apply for this session, but the config file couldn't be written: \(new.saveError ?? "unknown error"). They'll be lost when the app quits.")
+            alert.addButton(withTitle: String(localized: "OK"))
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+        // The settings form is created once and kept for the next open;
+        // it must show the new model when that happens.
+        settingsModel.model = id
+        settingsModel.customModel = !SplashModels.catalog.contains { $0.id == id }
+        if running {
+            store.resetForRestart()
+            store.serverPort = nil   // ours restarts on the configured port
+            proc.restart(with: new)
+        }
+    }
+
     // MARK: - Manage models window
 
     func openManageModels() {
+        deferPanelReopen = true
         if let w = modelManageWindow {
             NSApp.activate(ignoringOtherApps: true)
             w.makeKeyAndOrderFront(nil)
@@ -1277,15 +1318,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         w.title = String(localized: "Splash Menu Bar — Manage models")
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
-        w.delegate = self
         w.center()
         modelManageWindow = w
         modelManageModel = model
         NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async { [weak self] in self?.closePanel() }
         w.makeKeyAndOrderFront(nil)
     }
 
     private func closeModelManageWindow() {
+        deferPanelReopen = false
+        reopenPanel()
         modelManageWindow?.close()
         modelManageWindow = nil
         modelManageModel = nil
@@ -1307,14 +1350,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-extension AppDelegate: NSWindowDelegate {
+extension AppDelegate {
+    /// Every window close funnels here through the
+    /// `NSWindow.willCloseNotification` observer installed in
+    /// applicationDidFinishLaunching (the Settings scene's window has no
+    /// delegate to assign). It must be the ONLY path: the window's
+    /// NSWindowDelegate fires too, and a second pass would arrive after
+    /// the identity check below has cleared its target and fall into the
+    /// Settings branch — which reopens the flyout over the still-open
+    /// Settings window.
     func windowWillClose(_ notification: Notification) {
-        guard let w = notification.object as? NSWindow else { return }
+        guard let w = notification.object as? NSWindow, NSApp.windows.contains(w) else { return }
         if w === installWindow {
             // Closed via the title bar: stop a running install.
             installModel?.cancel()
             installWindow = nil
             installModel = nil
+            // The user came here from the flyout (install prompt, Update
+            // Splash, Update App); back to it.
+            reopenPanel()
             return
         }
         if w === modelManageWindow {
@@ -1326,13 +1380,15 @@ extension AppDelegate: NSWindowDelegate {
             modelManageModel = nil
             // The cache may have changed; refresh the picker's list.
             settingsModel.rescan()
+            // Settings is still open: the flyout it replaced hasn't come
+            // back yet, so don't pop the panel over it.
             return
         }
         // The standard Settings scene's window (tabbed — its title is the
         // current tab's name, not "<App> Settings"): close it and the
         // flyout it replaced.
         if !(w is NSPanel) && !w.className.contains("StatusBar") {
-            reopenPanel()
+            if !deferPanelReopen { reopenPanel() }
         }
     }
 }

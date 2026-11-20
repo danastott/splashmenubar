@@ -12,7 +12,9 @@ final class MetricsViewTests: XCTestCase {
     }
 
     private func headerHelp(_ store: MetricsStore) -> String {
-        MetricsView(store: store, config: .default, onAction: { _ in }).statusHelp
+        MetricsView(store: store, config: .default,
+                    settings: SettingsModel(config: .default),
+                    onAction: { _ in }).statusHelp
     }
 
     func testStatusHelpShowsServerVersion() {
@@ -40,7 +42,9 @@ final class MetricsViewTests: XCTestCase {
     }
 
     private func view(_ store: MetricsStore) -> MetricsView {
-        MetricsView(store: store, config: .default, onAction: { _ in })
+        MetricsView(store: store, config: .default,
+                    settings: SettingsModel(config: .default),
+                    onAction: { _ in })
     }
 
     func testTokGaugeScaleAutoScalesAbove100() {
