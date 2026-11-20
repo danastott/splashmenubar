@@ -37,7 +37,7 @@ The flyout while a request is decoding: tok/s, prefill and cache gauges,
 GPU/CPU/memory bars, the speed-over-time graph, and per-request and server
 details.
 
-![The flyout while a request is decoding: tok/s, prefill and cache gauges, GPU/CPU/memory bars, the speed-over-time graph, and per-request and server details](screenshot-flyout.jpeg)
+![The flyout while a request is decoding: tok/s, prefill and cache gauges, GPU/CPU/memory bars, the speed-over-time graph, and per-request and server details](screenshot-flyout.png)
 
 The Settings window's tabs: **Model** — the served model, its size on disk,
 the model cache and version pinning; **AI harness** — the installed coding
