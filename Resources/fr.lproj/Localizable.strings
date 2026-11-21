@@ -137,8 +137,13 @@
 "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit. \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached." = "Cache persistant sur disque (Réglages : --max-cache-disk / --persistent-cache) : utilisé / limite. « écritures bridées » signifie que splash met en pause les écritures du cache (budget ou disque plein), le nouveau contexte peut donc ne pas être mis en cache.";
 "age %@ · tick %@" = "âge %@ · tick %@";
 "Model" = "Modèle";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings." = "Le modèle servi par splash (Hugging Face repo:variante) ; fenêtre de contexte %@ tokens (prompt + sortie pour une requête). À modifier dans Réglages.";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings. Click to open the folder where its files are stored in Finder." = "Le modèle servi par splash (Hugging Face repo:variante) ; fenêtre de contexte %@ tokens (prompt + sortie pour une requête). À modifier dans Réglages. Cliquez pour ouvrir dans Finder le dossier où sont stockés ses fichiers.";
+"Open in Finder" = "Ouvrir dans Finder";
+"Open the folder in the Hugging Face cache where the model's files are stored." = "Ouvrir le dossier du cache Hugging Face où sont stockés les fichiers du modèle.";
+"Type any OWNER/REPO[:VARIANT] model in Settings." = "Saisir n'importe quel modèle OWNER/REPO[:VARIANT] dans les Réglages.";
+"Switch the splash model to %@?" = "Basculer le modèle splash sur %@ ?";
+"The server restarts with it; requests in progress are cancelled." = "Le serveur redémarre avec lui ; les requêtes en cours sont annulées.";
+"Switch" = "Basculer";
+"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Click to switch model — the server restarts with it — or open the model's folder in Finder; Custom… opens Settings." = "Le modèle servi par splash (repo Hugging Face :variante) ; fenêtre de contexte de %@ jetons (invite + sortie d'une requête). Cliquez pour changer de modèle — le serveur redémarre avec — ou ouvrir le dossier du modèle dans Finder ; Personnalisé… ouvre les Réglages.";
 "Endpoint" = "Endpoint";
 "Base URL of the OpenAI-compatible API (add /v1). Click to open it in your browser — splash's chat page lives at this address." = "URL de base de l'API compatible OpenAI (ajouter /v1). Cliquez pour l'ouvrir dans votre navigateur — la page de discussion de splash vit à cette adresse.";
 "Stop" = "Arrêter";
@@ -177,7 +182,7 @@
 "Downloaded" = "Téléchargé";
 "Not downloaded" = "Non téléchargé";
 "%@ — %@" = "%@ — %@";
-"%@ · %lld GB download" = "%@ · téléchargement %lld GB";
+"%@ · %lld GB" = "%@ · %lld GB";
 "Custom…" = "Personnalisé…";
 "Downloaded · %@ on disk" = "Téléchargé · %@ sur disque";
 "Open in Finder the folder where this model is stored (the Hugging Face cache)." = "Ouvrir dans Finder le dossier où ce modèle est stocké (le cache Hugging Face).";

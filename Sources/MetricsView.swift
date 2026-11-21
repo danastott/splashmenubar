@@ -101,6 +101,9 @@ struct MetricsView: View {
             sectionLabel("LOAD",
                          help: "Server-wide totals and averages since splash started.")
             load
+            sectionLabel("TODAY",
+                         help: "Aggregates since midnight for today's requests, persisted across server restarts.")
+            todayStats
             sectionLabel("SERVER",
                          help: "What splash is serving and where.")
             serverInfo
@@ -703,6 +706,23 @@ struct MetricsView: View {
             if let started = store.serverStartedAt {
                 row("Uptime", Fmt.duration(Date().timeIntervalSince(started)),
                     help: "Time since the server started.")
+            }
+        }
+    }
+
+    private var todayStats: some View {
+        VStack(spacing: 4) {
+            row("Requests", Fmt.int(store.todayCompleted) + " done",
+                help: "Requests completed today, from the server's lifetime counter minus the day's baseline. Works for adopted external servers too.")
+            row("Output", Fmt.int(store.todayOutputTokens) + " tok",
+                help: "Output tokens generated today, from the server's lifetime counter minus the day's baseline.")
+            if let avgTTFT = store.todayStats.avgTTFT {
+                row("TTFT (avg / p95)", "\(Fmt.seconds(avgTTFT)) / \(Fmt.seconds(store.todayStats.p95TTFT))",
+                    help: "Today's average time to first token and approximate 95th percentile. Lower is better.")
+            }
+            if let avgTPS = store.todayStats.avgTokPerSecond {
+                row("Avg tok/s", Fmt.double(avgTPS),
+                    help: "Average decode speed across today's requests.")
             }
         }
     }
