@@ -719,6 +719,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let timeout = min(max(interval * 2, 2), 10)
                 if let doc = await StatusClient.fetch(port: port, timeout: timeout) {
                     self.store.apply(status: doc)
+                    // Feed the flyout's TODAY section: daily stats derive
+                    // from the lifetime counters, so this works for adopted
+                    // external servers too (which have no log to parse).
+                    // The port is part of the baseline's identity, so a
+                    // switch to a different server re-baselines.
+                    StatsStore.shared.updateBaselines(
+                        completed: self.store.completedCount,
+                        output: self.store.totalOutputTokens,
+                        serverPort: port
+                    )
                 } else {
                     self.store.markPollFailed()
                 }
@@ -1327,11 +1337,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closeModelManageWindow() {
-        deferPanelReopen = false
-        reopenPanel()
+        // The in-window Close button; close() posts willCloseNotification
+        // synchronously, where the bookkeeping and the flyout decision
+        // live (with the title-bar close).
         modelManageWindow?.close()
-        modelManageWindow = nil
-        modelManageModel = nil
     }
 
     /// Rebuilds an open flyout (e.g. after Settings changed), keeping a
@@ -1354,11 +1363,10 @@ extension AppDelegate {
     /// Every window close funnels here through the
     /// `NSWindow.willCloseNotification` observer installed in
     /// applicationDidFinishLaunching (the Settings scene's window has no
-    /// delegate to assign). It must be the ONLY path: the window's
-    /// NSWindowDelegate fires too, and a second pass would arrive after
-    /// the identity check below has cleared its target and fall into the
-    /// Settings branch — which reopens the flyout over the still-open
-    /// Settings window.
+    /// delegate to assign). Each app window is matched by identity, and
+    /// the flyout is only reopened for the window that replaced it — so
+    /// unrelated windows, and third-party windows that reach this app
+    /// (TUINSWindow from Arc in practice), never trigger a reopen.
     func windowWillClose(_ notification: Notification) {
         guard let w = notification.object as? NSWindow, NSApp.windows.contains(w) else { return }
         if w === installWindow {
@@ -1372,6 +1380,10 @@ extension AppDelegate {
             return
         }
         if w === modelManageWindow {
+            // Decide the flyout's fate before clearing the reference:
+            // settingsWindow() excludes the manage window by identity,
+            // which only works while modelManageWindow still points at it.
+            let settingsOpen = settingsWindow() != nil
             // Stop a running download so it isn't orphaned (the Close
             // button is disabled while one runs, but a title-bar close
             // isn't).
@@ -1380,15 +1392,20 @@ extension AppDelegate {
             modelManageModel = nil
             // The cache may have changed; refresh the picker's list.
             settingsModel.rescan()
-            // Settings is still open: the flyout it replaced hasn't come
-            // back yet, so don't pop the panel over it.
+            deferPanelReopen = false
+            // Manage was opened from Settings; only restore the flyout
+            // once Settings is gone too, never over a still-open one.
+            if !settingsOpen { reopenPanel() }
             return
         }
         // The standard Settings scene's window (tabbed — its title is the
         // current tab's name, not "<App> Settings"): close it and the
-        // flyout it replaced.
-        if !(w is NSPanel) && !w.className.contains("StatusBar") {
-            if !deferPanelReopen { reopenPanel() }
+        // flyout it replaced. Match by identity, not by "any other
+        // window": foreign windows (TUINSWindow from Arc in practice)
+        // pass the NSApp.windows guard above and must not reopen the
+        // flyout.
+        if w === settingsWindow(), !deferPanelReopen {
+            reopenPanel()
         }
     }
 }
