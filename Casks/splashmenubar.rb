@@ -1,6 +1,6 @@
 cask "splashmenubar" do
-  version "1.0.10"
-  sha256 "62f52578b6beb9d78e70970ca891c3c04cf4a3dc0b36ecffc293209cb7e8d0c4"
+  version "1.0.11"
+  sha256 "f68ccbffb0b44af6dc78da46865a4d741c04594bc70c323358d7aba9053e04a4"
 
   url "https://github.com/danastott/splashmenubar/releases/download/v#{version}/SplashMenuBar-#{version}.zip"
   name "Splash Menu Bar"
