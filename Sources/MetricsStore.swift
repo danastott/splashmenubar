@@ -260,6 +260,19 @@ final class MetricsStore: ObservableObject {
     var crashLines: [String] {
         Array(logLines.suffix(5))
     }
+    /// Today's aggregated request stats.
+    var todayStats: DailyStats {
+        StatsStore.shared.today
+    }
+    /// Requests completed today (lifetime counter minus the day's baseline).
+    /// Nil until the first /status poll records a baseline.
+    var todayCompleted: Int? {
+        todayStats.completedToday(current: completedCount)
+    }
+    /// Output tokens generated today (lifetime counter minus the baseline).
+    var todayOutputTokens: Int? {
+        todayStats.outputToday(current: totalOutputTokens)
+    }
 
     // MARK: - Log ingest
 
@@ -290,6 +303,15 @@ final class MetricsStore: ObservableObject {
             requests.append(r)
             if requests.count > 2000 {
                 requests.removeFirst(requests.count - 2000)
+            }
+            // Per-request TTFT / tok/s into today's daily sums. App-launched
+            // servers only (adopted external servers have no log to parse);
+            // their request counts and tokens come from the /status delta.
+            if !r.isStarted {
+                StatsStore.shared.accumulateRequest(
+                    ttft: r.ttftSeconds,
+                    tps: r.tokensPerSecond
+                )
             }
         case .thermal(_, let to):
             thermalState = to
