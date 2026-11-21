@@ -137,8 +137,13 @@
 "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit. \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached." = "磁碟上的持久快取（設定：--max-cache-disk / --persistent-cache）：已用 / 上限。「寫入受限」表示 splash 正在暫停快取寫入（預算用盡或磁碟已滿），因此新上下文可能不會被快取。";
 "age %@ · tick %@" = "快照時長 %@ · 循環耗時 %@";
 "Model" = "模型";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings." = "splash 正在提供的模型（Hugging Face repo:variant）；上下文窗口 %@ tokens（一個請求的提示詞 + 輸出）。在「設定」中變更。";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings. Click to open the folder where its files are stored in Finder." = "splash 正在提供的模型（Hugging Face repo:variant）；上下文窗口 %@ tokens（一個請求的提示詞 + 輸出）。在「設定」中變更。點擊可在 Finder 中打開其檔案所在的資料夾。";
+"Open in Finder" = "在 Finder 中開啟";
+"Open the folder in the Hugging Face cache where the model's files are stored." = "開啟 Hugging Face 快取中存放該模型檔案的資料夾。";
+"Type any OWNER/REPO[:VARIANT] model in Settings." = "在設定中鍵入任意 OWNER/REPO[:VARIANT] 模型。";
+"Switch the splash model to %@?" = "將 splash 模型切換為 %@？";
+"The server restarts with it; requests in progress are cancelled." = "伺服器將使用新模型重啟；進行中的請求會被取消。";
+"Switch" = "切換";
+"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Click to switch model — the server restarts with it — or open the model's folder in Finder; Custom… opens Settings." = "splash 正在服務的模型（Hugging Face 儲存庫:變體）；上下文視窗 %@ 個 token（一次請求的輸入 + 輸出）。點擊可切換模型（伺服器將使用新模型重啟）或在 Finder 中開啟模型資料夾；自定義…開啟設定。";
 "Endpoint" = "端點";
 "Base URL of the OpenAI-compatible API (add /v1). Click to open it in your browser — splash's chat page lives at this address." = "OpenAI 兼容 API 的基礎 URL（加 /v1）。點擊可在瀏覽器中打開 — splash 的聊天頁面就在這個地址。";
 "Stop" = "停止";
@@ -177,7 +182,7 @@
 "Downloaded" = "已下載";
 "Not downloaded" = "未下載";
 "%@ — %@" = "%@ — %@";
-"%@ · %lld GB download" = "%@ · 下載 %lld GB";
+"%@ · %lld GB" = "%@ · %lld GB";
 "Custom…" = "自定義…";
 "Downloaded · %@ on disk" = "已下載 · 磁碟佔 %@";
 "Open in Finder the folder where this model is stored (the Hugging Face cache)." = "在 Finder 中打開存放該模型的資料夾（Hugging Face 快取）。";

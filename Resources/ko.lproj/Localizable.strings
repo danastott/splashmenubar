@@ -136,8 +136,13 @@
 "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit. \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached." = "디스크의 영속 캐시(설정: --max-cache-disk / --persistent-cache): 사용 / 제한. “writes gated”는 splash가 캐시 쓰기를 일시 중단 중(예산 초과 또는 디스크 만점)이라는 뜻으로, 새 컨텍스트는 캐시되지 않을 수 있습니다.";
 "age %@ · tick %@" = "age %@ · tick %@";
 "Model" = "모델";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings." = "splash가 서빙 중인 모델(Hugging Face repo:variant); 컨텍스트 윈도우 %@ 토큰(요청 1개의 프롬프트 + 출력). 설정에서 변경합니다.";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings. Click to open the folder where its files are stored in Finder." = "splash가 서빙 중인 모델(Hugging Face repo:variant); 컨텍스트 윈도우 %@ 토큰(요청 1개의 프롬프트 + 출력). 설정에서 변경합니다. 클릭하면 파일이 저장된 폴더를 Finder에서 엽니다.";
+"Open in Finder" = "Finder에서 열기";
+"Open the folder in the Hugging Face cache where the model's files are stored." = "모델 파일이 저장된 Hugging Face 캐시 폴더를 엽니다.";
+"Type any OWNER/REPO[:VARIANT] model in Settings." = "설정에서 OWNER/REPO[:VARIANT] 형식의 모델을 입력합니다.";
+"Switch the splash model to %@?" = "splash 모델을 %@(으)로 전환할까요?";
+"The server restarts with it; requests in progress are cancelled." = "서버가 해당 모델로 재시작되며, 진행 중인 요청은 취소됩니다.";
+"Switch" = "전환";
+"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Click to switch model — the server restarts with it — or open the model's folder in Finder; Custom… opens Settings." = "splash가 서빙 중인 모델(Hugging Face 저장소:변형); 컨텍스트 윈도우 %@ 토큰(요청 1개당 프롬프트 + 출력). 클릭하면 모델을 전환할 수 있습니다(서버는 해당 모델로 재시작됨), Finder에서 모델 폴더를 열 수도 있습니다. 사용자 지정… 은 설정을 엽니다.";
 "Endpoint" = "엔드포인트";
 "Base URL of the OpenAI-compatible API (add /v1). Click to open it in your browser — splash's chat page lives at this address." = "OpenAI 호환 API의 기본 URL(/v1 추가). 클릭하면 브라우저에서 엽니다 — splash의 채팅 페이지가 이 주소에 있습니다.";
 "Stop" = "중지";
@@ -176,7 +181,7 @@
 "Downloaded" = "다운로드됨";
 "Not downloaded" = "다운로드 안 됨";
 "%@ — %@" = "%@ — %@";
-"%@ · %lld GB download" = "%@ · %lld GB 다운로드";
+"%@ · %lld GB" = "%@ · %lld GB";
 "Custom…" = "사용자 지정…";
 "Downloaded · %@ on disk" = "다운로드됨 · 디스크 사용 %@";
 "Open in Finder the folder where this model is stored (the Hugging Face cache)." = "이 모델이 저장된 폴더(Hugging Face 캐시)를 Finder에서 엽니다.";

@@ -136,8 +136,13 @@
 "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit. \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached." = "ディスク上の永続キャッシュ (設定: --max-cache-disk / --persistent-cache): 使用 / 上限。“writes gated” は splash がキャッシュ書き込みを一時停止中 (予算超過またはディスク満杯) という意味で、新しいコンテキストはキャッシュされないことがあります。";
 "age %@ · tick %@" = "age %@ · tick %@";
 "Model" = "モデル";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings." = "splash が提供しているモデル (Hugging Face repo:variant)。コンテキストウィンドウは %@ トークン (1リクエストのプロンプト + 出力)。設定で変更できます。";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings. Click to open the folder where its files are stored in Finder." = "splash が提供しているモデル (Hugging Face repo:variant)。コンテキストウィンドウは %@ トークン (1リクエストのプロンプト + 出力)。設定で変更できます。クリックで、ファイルが保存されているフォルダを Finder で開きます。";
+"Open in Finder" = "Finder で開く";
+"Open the folder in the Hugging Face cache where the model's files are stored." = "モデルのファイルが保存されている Hugging Face キャッシュのフォルダを開きます。";
+"Type any OWNER/REPO[:VARIANT] model in Settings." = "設定で OWNER/REPO[:VARIANT] 形式の任意のモデルを指定します。";
+"Switch the splash model to %@?" = "splash のモデルを %@ に切り替えますか？";
+"The server restarts with it; requests in progress are cancelled." = "サーバーは新しいモデルで再起動されます。進行中のリクエストはキャンセルされます。";
+"Switch" = "切り替え";
+"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Click to switch model — the server restarts with it — or open the model's folder in Finder; Custom… opens Settings." = "splash が提供するモデル（Hugging Face リポジトリ:バリアント）；コンテキストウィンドウ %@ トークン（1 リクエスト分のプロンプト + 出力）。クリックでモデルを切り替え（サーバーはそれで再起動されます）または Finder でモデルのフォルダを開けます。カスタム… は設定を開きます。";
 "Endpoint" = "エンドポイント";
 "Base URL of the OpenAI-compatible API (add /v1). Click to open it in your browser — splash's chat page lives at this address." = "OpenAI 互換 API のベース URL (/v1 を追加)。クリックでブラウザで開きます — splash のチャットページはこのアドレスにあります。";
 "Stop" = "停止";
@@ -176,7 +181,7 @@
 "Downloaded" = "ダウンロード済み";
 "Not downloaded" = "未ダウンロード";
 "%@ — %@" = "%@ — %@";
-"%@ · %lld GB download" = "%@ · %lld GB のダウンロード";
+"%@ · %lld GB" = "%@ · %lld GB";
 "Custom…" = "カスタム…";
 "Downloaded · %@ on disk" = "ダウンロード済み · ディスク使用量 %@";
 "Open in Finder the folder where this model is stored (the Hugging Face cache)." = "このモデルが保存されているフォルダ (Hugging Face キャッシュ) を Finder で開きます。";

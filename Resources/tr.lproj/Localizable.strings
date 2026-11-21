@@ -137,8 +137,13 @@
 "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit. \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached." = "Diskteki kalıcı önbellek (Ayarlar: --max-cache-disk / --persistent-cache): kullanılan / sınır. \"writes gated\", splash'ın önbellek yazılarını durdurduğu (bütçe veya disk dolu) anlamına gelir, yeni bağlam önbelleğe alınmayabilir.";
 "age %@ · tick %@" = "yaş %@ · tik %@";
 "Model" = "Model";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings." = "splash'ın sunduğu model (Hugging Face depo:sürüm); bağlam penceresi %@ token (bir istek için prompt + çıktı). Ayarlar'da değiştir.";
-"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Change it in Settings. Click to open the folder where its files are stored in Finder." = "splash'ın sunduğu model (Hugging Face depo:sürüm); bağlam penceresi %@ token (bir istek için prompt + çıktı). Ayarlar'da değiştir. Dosyalarının saklandığı klasörü Finder'da açmak için tıkla.";
+"Open in Finder" = "Finder'da aç";
+"Open the folder in the Hugging Face cache where the model's files are stored." = "Model dosyalarının saklandığı Hugging Face önbelleğindeki klasörü açar.";
+"Type any OWNER/REPO[:VARIANT] model in Settings." = "Ayarlar'da OWNER/REPO[:VARIANT] biçiminde herhangi bir model yazın.";
+"Switch the splash model to %@?" = "Splash modeli %@ olarak değiştirilsin mi?";
+"The server restarts with it; requests in progress are cancelled." = "Sunucu bununla yeniden başlatılır; devam eden istekler iptal edilir.";
+"Switch" = "Değiştir";
+"The model splash is serving (Hugging Face repo:variant); context window %@ tokens (prompt + output for one request). Click to switch model — the server restarts with it — or open the model's folder in Finder; Custom… opens Settings." = "splash'in sunduğu model (Hugging Face deposu:varyant); bağlam penceresi %@ token (bir istek için giriş + çıktı). Modeli değiştirmek — sunucu onunla yeniden başlatılır — veya model klasörünü Finder'da açmak için tıklayın; Özel… Ayarlar'ı açar.";
 "Endpoint" = "Uç nokta";
 "Base URL of the OpenAI-compatible API (add /v1). Click to open it in your browser — splash's chat page lives at this address." = "OpenAI uyumlu API'nin temel URL'si (/v1 ekle). Tarayıcında açmak için tıkla — splash'ın sohbet sayfası bu adreste.";
 "Stop" = "Durdur";
@@ -177,7 +182,7 @@
 "Downloaded" = "İndirildi";
 "Not downloaded" = "İndirilmedi";
 "%@ — %@" = "%@ — %@";
-"%@ · %lld GB download" = "%@ · %lld GB indirme";
+"%@ · %lld GB" = "%@ · %lld GB";
 "Custom…" = "Özel…";
 "Downloaded · %@ on disk" = "İndirildi · diskte %@";
 "Open in Finder the folder where this model is stored (the Hugging Face cache)." = "Bu modelin saklandığı klasörü Finder'da aç (Hugging Face önbelleği).";
