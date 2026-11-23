@@ -1,6 +1,6 @@
 import Foundation
 
-/// Subset of the `GET /status` JSON (schema_version 6) used by the UI.
+/// Subset of the `GET /status` JSON (schema_version 8) used by the UI.
 struct StatusDoc: Decodable {
     let ready: Bool?
     let thermal_state: String?
@@ -58,6 +58,10 @@ struct StatusDoc: Decodable {
         let ttft_ms: Percentiles?
         /// Inter-token latency in ms, across all generated tokens.
         let itl_ms: Percentiles?
+        /// Decode gap in ms (splash 1.7.0+): pauses between output tokens
+        /// the engine caused (a KV read back from the SSD, a reschedule),
+        /// as distinct from the model's own step time (ITL).
+        let decode_gap_ms: Percentiles?
         let prefill_tokens_per_second: Double?
         let decode_tokens_per_second: Double?
         let decode_output_tokens: Int?
@@ -150,6 +154,16 @@ struct StatusDoc: Decodable {
         let limit_bytes: Int?
         /// True while splash is pausing cache writes (budget or disk).
         let writes_gated: FlexBool?
+        /// Why the SSD cache is off; absent while it is on (splash 1.7.1+).
+        let off_reason: String?
+        /// SSD reads since startup: spilled prompt context (splash 1.7.1+).
+        let spilled_kv_read_bytes: Int?
+        /// SSD reads since startup: streamed model weights (splash 1.7.1+).
+        let weights_read_bytes: Int?
+        /// SSD cache writes in the last hour (splash 1.7.0+).
+        let written_last_hour_bytes: Int?
+        /// SSD cache writes in the last day (splash 1.7.0+).
+        let written_last_day_bytes: Int?
     }
 
     /// Server event-loop health, self-reported.

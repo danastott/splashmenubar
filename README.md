@@ -126,6 +126,20 @@ harnesses and Auto Connect; **Server** — the `splash serve` parameters;
     temperature (the hottest Apple silicon die sensor, read through IOKit's
     HID event system; shown in °F or °C per System Settings › General ›
     Language & Region)
+  - **decode gap (p50 / p95)**: engine-caused pauses between output tokens
+    — time generated tokens waited on the engine (e.g. prompt context read
+    back from the SSD cache) as distinct from ITL, the model's own step
+    time. Higher means the engine is stalling generation. Shown only while
+    the server reports it (splash 1.7.0+)
+  - **SSD cache**: used/limit of the persistent SSD cache,
+    "writes gated" (orange) while splash pauses cache writes, and
+    "off · reason" (orange) when the engine turned the SSD cache off at a
+    start that asked for it (splash 1.7.1+); the tooltip adds the cache's
+    write rate (last hour/day) and its SSD reads since startup
+  - **SSD reads**: bytes read from the SSD cache since the server started
+    (spilled prompt context and streamed model weights; splash 1.7.1+),
+    shown only while the server is actually reading from the SSD — e.g. a
+    model whose experts stream from disk on a low-memory Mac
   - **prefill progress**: while a request is in its prompt phase,
     `prompt_processed / prompt_tokens` from `active_requests` with an
     estimated time left (remaining tokens ÷ current prefill speed)
@@ -200,6 +214,22 @@ harnesses and Auto Connect; **Server** — the `splash serve` parameters;
   sizes — where new models (or a specific revision) are downloaded with
   streamed progress, and versions or whole repositories are removed, freeing
   the disk no remaining version references.
+- **Stuck request detection**: while a request is in flight, its progress —
+  prompt tokens processed plus tokens generated, summed over the active
+  requests — is checked against the last poll. If it stops moving for a
+  minute (or the server stops answering `/status` altogether), the flyout
+  shows an orange "Request appears stuck" card and a notification; it clears
+  when progress resumes or the request finishes. The clock is held while the
+  weights are being restored from memory or the engine is recovering, and the
+  engine card takes precedence over the stuck card.
+- **Recent requests**: the list icon in the flyout's header (it appears once
+  a request has finished) opens a window with the newest 200 finished
+  requests from the server's log — time, input, cached, output, TTFT, tok/s.
+  An adopted (external) server has no log for the app to parse, so its window
+  shows an empty state saying so.
+- **Low Power Mode note**: while macOS's Low Power Mode is on (it caps the
+  CPU and GPU), a one-line "Low Power Mode is on — expect slower decode"
+  appears under the gauges, so a speed drop is explained, not just visible.
 - The status bar item shows the live tok/s while decoding, e.g. `▣ 78.5 t/s`; while a prompt is prefilling (and nothing is decoding) it shows the prompt progress instead, e.g. `▣ ◐ 46%`; when the server is idle it shows a green ●.
 
 ## Languages
@@ -255,6 +285,12 @@ edits the full `splash serve` command line, persisted to
 | Language only | `--language-only` | skip vision |
 | Disable Neural Engine | `--disable-ane` | prefill on GPU alone |
 | Persistent cache | `--persistent-cache` | keep the SSD cache across restarts |
+| Concurrency limit | `--max-concurrent-requests` | `1`–`8` (`4` (default) omits the flag) |
+| Sampling defaults | `--sampling-default` | `NAME=VALUE` pairs for requests that set none, e.g. `temperature=0.7 top_p=0.9` (blank = the model's published sampling) |
+| Activations | `--activations` | `auto` (default, omits the flag) or `bf16` |
+| Verify rows | `--verify-rows` | `auto` (default, omits the flag) or `all` |
+| Cached states | `--cached-states` | `int8` (default, omits the flag) or `exact` |
+| Recalibrate Neural Engine | `--recalibrate-ane` | off by default (which omits the flag); recalibrates the Neural Engine's share of long prompts at every start; unavailable while the Neural Engine is disabled |
 | Pin model version | `--revision` | off by default, when splash follows the repository's default branch; on, splash starts with `--revision` set to the commit of the model's newest complete snapshot in the Hugging Face cache, so a new commit upstream is not re-downloaded over the copy on disk. With no complete copy cached there is no version to pin, so the first start downloads as usual |
 
 Blank optional fields and default pickers omit the flag entirely.

@@ -619,6 +619,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        // A request made no progress for a minute: likely a hang.
+        store.$requestStuck
+            .removeDuplicates()
+            .sink { [weak self] stuck in
+                guard let self, stuck else { return }
+                self.postNotification(title: String(localized: "Request appears stuck"),
+                                      body: String(localized: "A request has made no progress for 1 minute. Restart usually clears it."))
+            }
+            .store(in: &cancellables)
+
         // The weights were released from memory after idleness.
         store.$weightsReleased
             .removeDuplicates()
@@ -712,6 +722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 self.store.chipTemperatureC = self.thermalSensor?.celsius()
                 self.store.system = self.systemMonitor.sample()
+                self.store.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
                 // The configured port, or a splash found running elsewhere.
                 let port = self.store.serverPort ?? self.config.port
                 // Time out well before a minute so a stalled server can't
@@ -762,6 +773,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .settings:
             dismissPanel()
             openSettings()
+        case .requests:
+            dismissPanel()
+            openRequestLog()
         case .switchModel(let id):
             dismissPanel()
             switchModel(to: id)
@@ -1343,6 +1357,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         modelManageWindow?.close()
     }
 
+    // MARK: - Recent requests window
+
+    private var requestLogWindow: NSWindow?
+
+    /// Opens the log of finished requests (from the server's log — an
+    /// adopted, externally started server has no log, so its window is
+    /// empty by design). Reopening focuses the existing window.
+    func openRequestLog() {
+        if let w = requestLogWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            w.makeKeyAndOrderFront(nil)
+            return
+        }
+        let view = RequestLogView(store: store)
+        let w = NSWindow(contentViewController: NSHostingController(rootView: view))
+        w.title = String(localized: "Splash Menu Bar — Recent requests")
+        w.styleMask = [.titled, .closable]
+        w.isReleasedWhenClosed = false
+        w.center()
+        requestLogWindow = w
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async { [weak self] in self?.closePanel() }
+        w.makeKeyAndOrderFront(nil)
+    }
+
     /// Rebuilds an open flyout (e.g. after Settings changed), keeping a
     /// pinned flyout where the user put it.
     private func rebuildPanelIfVisible() {
@@ -1396,6 +1435,12 @@ extension AppDelegate {
             // Manage was opened from Settings; only restore the flyout
             // once Settings is gone too, never over a still-open one.
             if !settingsOpen { reopenPanel() }
+            return
+        }
+        if w === requestLogWindow {
+            requestLogWindow = nil
+            // It replaced the flyout (opened from it); back to the flyout.
+            reopenPanel()
             return
         }
         // The standard Settings scene's window (tabbed — its title is the

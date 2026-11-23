@@ -4,6 +4,8 @@ import AppKit
 enum MenuAction {
     case start, stop, restart, settings, quit, togglePin, dismissSetupTip, update,
          updateApp
+    /// Open the window with the finished requests from the server's log.
+    case requests
     /// Pick the served model from the flyout's Model menu.
     case switchModel(String)
 }
@@ -74,6 +76,11 @@ struct MetricsView: View {
             }
             if store.effectiveRunning, let warn = engineWarning {
                 warningCard(warn)
+            } else if store.effectiveRunning, store.requestStuck {
+                // The engine card already explains a hang caused by a
+                // Metal failure or a restarting engine; the stuck card is
+                // the "no obvious cause" one.
+                warningCard(stuckCard)
             }
             if store.updateAvailable {
                 updateCard
@@ -82,6 +89,9 @@ struct MetricsView: View {
                 appUpdateCard
             }
             gauges
+            if store.lowPowerMode {
+                lowPowerLine
+            }
             sectionLabel("DECODE SPEED · TOK/S",
                          help: "The last \(config.graphSampleWindow) tok/s samples, taken every \(refreshText) while a request is generating. Idle time isn't part of the graph; the sample count is set by the graph span and UI refresh in Settings.")
             Sparkline(values: store.tpsHistory,
@@ -176,6 +186,16 @@ struct MetricsView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(pinTitle)
             .help(pinHelp)
+            if store.last != nil {
+                Button(action: { onAction(.requests) }) {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Recent requests")
+                .help("Recent requests: the finished requests from this server's log, newest first. A server started outside the app has no log for the app to read.")
+            }
             Button(action: { onAction(.settings) }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 12))
@@ -390,6 +410,14 @@ struct MetricsView: View {
         return nil
     }
 
+    /// The no-progress warning: a request has been in flight for over a
+    /// minute without generating or processing a token.
+    private var stuckCard: (title: String, detail: String, color: Color) {
+        (String(localized: "Request appears stuck"),
+         String(localized: "No progress for 1 minute: a request is still in flight, but nothing is being generated or processed. It may be a Metal hang — Restart usually clears it."),
+         .orange)
+    }
+
     private var restartsSuffix: String {
         store.engineRestarts > 0 ? String(localized: " Restarted \(store.engineRestarts)× since startup.") : ""
     }
@@ -527,6 +555,20 @@ struct MetricsView: View {
         case "serious": return .orange
         default: return .red
         }
+    }
+
+    /// Low Power Mode caps the CPU/GPU: one quiet line, not a card — it's
+    /// a machine setting, not a server problem.
+    private var lowPowerLine: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "bolt.slash")
+                .font(.system(size: 9))
+            Text("Low Power Mode is on — expect slower decode")
+                .font(.system(size: 10))
+        }
+        .foregroundColor(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .help("macOS's Low Power Mode (System Settings → Battery) limits the CPU and GPU, so decode and prefill speeds will be lower than on full power.")
     }
 
     // MARK: - Gauges
@@ -687,6 +729,10 @@ struct MetricsView: View {
                 row("ITL (p50 / p95)", "\(Fmt.ms(store.itlP50)) / \(Fmt.ms(store.itlP95))",
                     help: "Inter-token latency: the time between consecutive output tokens while generating, across requests (median / 95th percentile). For one stream at a time this is the perceived speed — 1000 ÷ ITL tokens per second — so lower is better.")
             }
+            if store.decodeGapP50 != nil {
+                row("Decode gap (p50 / p95)", "\(Fmt.ms(store.decodeGapP50)) / \(Fmt.ms(store.decodeGapP95))",
+                    help: "Engine-caused pauses between output tokens (splash 1.7.0 and later): time generated tokens waited on the engine — e.g. prompt context read back from the SSD cache, or the engine rescheduling — as distinct from ITL, the model's own step time. Higher means the engine is stalling generation.")
+            }
             row("Prefill / decode", "\(Fmt.double(store.prefillTokensPerSecond, 0)) / \(Fmt.double(store.lifetimeTokensPerSecond)) tok/s",
                 help: "Average speeds since splash started: prompt processing (prefill) / generation (decode).")
             if store.draftedTokens != nil {
@@ -816,10 +862,15 @@ struct MetricsView: View {
                 row("ANE", aneSummary,
                     help: "How the model's FFN (feed-forward) layers are split between the Apple Neural Engine (ANE) and the GPU: the percentage is the ANE's share of the work. ane = all on the ANE, split = shared, gpu = none (e.g. --disable-ane).")
             }
-            if store.diskUsedBytes != nil || store.diskLimitBytes != nil {
+            if store.diskUsedBytes != nil || store.diskLimitBytes != nil
+                || store.diskOffReason != nil {
                 let d = diskSummary
                 row("SSD cache", d.text, warn: d.warn,
                     help: diskHelp)
+            }
+            if let read = store.ssdReadBytes {
+                row("SSD reads", Fmt.bytes(read),
+                    help: "Bytes read from the SSD cache since the server started: spilled prompt context and streamed model weights. Shown only while the server has actually read from the SSD — e.g. a model whose experts stream from disk on a low-memory Mac.")
             }
             if store.statusAgeMs != nil || store.maxTickMs != nil {
                 let h = healthSummary
@@ -845,22 +896,55 @@ struct MetricsView: View {
         return s
     }
 
-    /// "2.1 / 16 GiB"; " · writes gated" (orange) while splash pauses writes.
+    /// "2.1 / 16 GiB"; " · writes gated" (orange) while splash pauses
+    /// writes; "off · reason" (orange) when the engine turned the SSD cache
+    /// off the start asked for (e.g. no room on the disk).
     private var diskSummary: (text: String, warn: Bool) {
         guard let used = store.diskUsedBytes, let limit = store.diskLimitBytes else {
+            if let reason = store.diskOffReason {
+                return (String(localized: "off · \(reason)"), true)
+            }
             return ("—", false)
         }
         var s = "\(Fmt.bytes(used)) / \(Fmt.bytes(limit))"
         let gated = store.diskWritesGated == true
         if gated { s += String(localized: " · writes gated") }
-        return (s, gated)
+        if let reason = store.diskOffReason {
+            s += " · " + String(localized: "off (\(reason))")
+        }
+        return (s, gated || store.diskOffReason != nil)
     }
 
-    private var diskHelp: LocalizedStringKey {
-        if store.diskWritesGated == true {
-            return "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit. \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached."
+    /// The SSD cache row's tooltip: what the row shows, plus the SSD cache's
+    /// write rate and its SSD reads while the server reports them. Built as
+    /// a String (like memoryHelp) and wrapped: a LocalizedStringKey that is
+    /// not a key renders its own text, so the composed sentence survives.
+    private var diskHelp: LocalizedStringKey { LocalizedStringKey(diskHelpText) }
+
+    private var diskHelpText: String {
+        let base: String
+        if store.diskOffReason != nil {
+            base = String(localized: "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): splash asked for an SSD cache and the engine turned it off — the row names why.")
+        } else if store.diskWritesGated == true {
+            base = String(localized: "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit. \"writes gated\" means splash is pausing cache writes (budget or disk full), so new context may not be cached.")
+        } else {
+            base = String(localized: "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit.")
         }
-        return "Persistent cache on disk (Settings: --max-cache-disk / --persistent-cache): used / limit."
+        var extra: [String] = []
+        if let h = store.diskWrittenLastHourBytes, let d = store.diskWrittenLastDayBytes,
+           h > 0 || d > 0 {
+            extra.append(String(localized: "Written \(Fmt.bytes(Int(h))) in the last hour, \(Fmt.bytes(Int(d))) in the last day."))
+        }
+        let kv = store.diskSpilledKvReadBytes ?? 0
+        let w = store.diskWeightsReadBytes ?? 0
+        if kv > 0, w > 0 {
+            extra.append(String(localized: "Read from the SSD since startup: \(Fmt.bytes(kv)) of spilled prompt context, \(Fmt.bytes(w)) of streamed weights."))
+        } else if w > 0 {
+            extra.append(String(localized: "Read from the SSD since startup: \(Fmt.bytes(w)) of streamed weights."))
+        } else if kv > 0 {
+            extra.append(String(localized: "Read from the SSD since startup: \(Fmt.bytes(kv)) of spilled prompt context."))
+        }
+        return base + extra.joined(separator: " ")
     }
 
     /// "age 0 ms · tick 99 ms"; orange when the snapshot is stale (>2 s) or
