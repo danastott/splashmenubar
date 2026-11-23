@@ -71,6 +71,12 @@ struct SplashConfig: Codable, Equatable {
     var disableANE: Bool = false        // --disable-ane
     var maxCacheDisk: String?   // --max-cache-disk, e.g. "16G" ("0" turns it off)
     var persistentCache: Bool = false   // --persistent-cache
+    var maxConcurrentRequests: Int?     // --max-concurrent-requests, 1–8 (nil = splash's default, 4)
+    var samplingDefaults: String?       // --sampling-default pairs: "temperature=0.7 top_p=0.9"
+    var activations: String?            // --activations: "bf16" (nil = auto)
+    var verifyRows: String?             // --verify-rows: "all" (nil = auto)
+    var cachedStates: String?           // --cached-states: "exact" (nil = int8)
+    var recalibrateANE: Bool = false    // --recalibrate-ane (never with --disable-ane)
     /// Start with `--revision` set to the commit of the model's newest
     /// complete snapshot in the Hugging Face cache, so a new commit on the
     /// repository's default branch is not downloaded over the copy already
@@ -142,7 +148,13 @@ struct SplashConfig: Codable, Equatable {
         stateFormat: nil,
         disableANE: false,
         maxCacheDisk: nil,
-        persistentCache: false
+        persistentCache: false,
+        maxConcurrentRequests: nil,
+        samplingDefaults: nil,
+        activations: nil,
+        verifyRows: nil,
+        cachedStates: nil,
+        recalibrateANE: false
     )
 
     init(model: String,
@@ -156,6 +168,12 @@ struct SplashConfig: Codable, Equatable {
          disableANE: Bool = false,
          maxCacheDisk: String? = nil,
          persistentCache: Bool = false,
+         maxConcurrentRequests: Int? = nil,
+         samplingDefaults: String? = nil,
+         activations: String? = nil,
+         verifyRows: String? = nil,
+         cachedStates: String? = nil,
+         recalibrateANE: Bool = false,
          pinModelVersion: Bool = false,
          refreshInterval: Double = 2,
          graphMinutes: Int = 5,
@@ -178,6 +196,12 @@ struct SplashConfig: Codable, Equatable {
         self.disableANE = disableANE
         self.maxCacheDisk = maxCacheDisk
         self.persistentCache = persistentCache
+        self.maxConcurrentRequests = maxConcurrentRequests
+        self.samplingDefaults = samplingDefaults
+        self.activations = activations
+        self.verifyRows = verifyRows
+        self.cachedStates = cachedStates
+        self.recalibrateANE = recalibrateANE
         self.pinModelVersion = pinModelVersion
         self.refreshInterval = refreshInterval
         self.graphMinutes = graphMinutes
@@ -206,6 +230,12 @@ struct SplashConfig: Codable, Equatable {
         disableANE = try c.decodeIfPresent(Bool.self, forKey: .disableANE) ?? false
         maxCacheDisk = try c.decodeIfPresent(String.self, forKey: .maxCacheDisk)
         persistentCache = try c.decodeIfPresent(Bool.self, forKey: .persistentCache) ?? false
+        maxConcurrentRequests = try c.decodeIfPresent(Int.self, forKey: .maxConcurrentRequests)
+        samplingDefaults = try c.decodeIfPresent(String.self, forKey: .samplingDefaults)
+        activations = try c.decodeIfPresent(String.self, forKey: .activations)
+        verifyRows = try c.decodeIfPresent(String.self, forKey: .verifyRows)
+        cachedStates = try c.decodeIfPresent(String.self, forKey: .cachedStates)
+        recalibrateANE = try c.decodeIfPresent(Bool.self, forKey: .recalibrateANE) ?? false
         pinModelVersion = try c.decodeIfPresent(Bool.self, forKey: .pinModelVersion) ?? false
         let interval = try c.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 2
         refreshInterval = min(max(interval, 0.25), 60)
@@ -264,6 +294,7 @@ struct SplashConfig: Codable, Equatable {
                                     refreshIntervalChoices.min()!),
                                 refreshIntervalChoices.max()!)
         c.port = min(max(c.port, 1), 65535)
+        c.maxConcurrentRequests = c.maxConcurrentRequests.map { min(max($0, 1), 8) }
         c.graphMinutes = min(max(c.graphMinutes,
                                  graphMinutesChoices.min()!),
                              graphMinutesChoices.max()!)
@@ -311,6 +342,17 @@ struct SplashConfig: Codable, Equatable {
         if disableANE { args.append("--disable-ane") }
         if let v = clean(maxCacheDisk) { args += ["--max-cache-disk", v] }
         if persistentCache { args.append("--persistent-cache") }
+        if let n = maxConcurrentRequests { args += ["--max-concurrent-requests", String(n)] }
+        // One --sampling-default per NAME=VALUE pair; splash checks the
+        // name and the value's range at a start.
+        for pair in (samplingDefaults ?? "").split(whereSeparator: \.isWhitespace) {
+            args += ["--sampling-default", String(pair)]
+        }
+        if let v = clean(activations) { args += ["--activations", v] }
+        if let v = clean(verifyRows) { args += ["--verify-rows", v] }
+        if let v = clean(cachedStates) { args += ["--cached-states", v] }
+        // splash refuses the pair: --recalibrate-ane needs the Neural Engine.
+        if recalibrateANE, !disableANE { args.append("--recalibrate-ane") }
         // Only a complete copy in the cache gives a commit to pin; without
         // one the first start downloads the default branch as usual.
         if pinModelVersion, let revision = SplashModels.cachedCommit(for: model) {

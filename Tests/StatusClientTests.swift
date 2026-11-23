@@ -18,6 +18,7 @@ final class StatusClientTests: XCTestCase {
       "metrics": {
         "ttft_ms": {"p50": 1000, "p95": 2000},
         "itl_ms": {"p50": 16.5, "p95": 66.5},
+        "decode_gap_ms": {"p50": 1.2, "p95": 4.5, "p99": 9, "max": 42, "total": 300, "samples": 100},
         "prefill_tokens_per_second": 310,
         "decode_tokens_per_second": 67,
         "decode_output_tokens": 1854,
@@ -32,7 +33,9 @@ final class StatusClientTests: XCTestCase {
       "scheduler": {"prefilling": 0, "decoding": 2, "queued": 3, "waiting_resources": 1},
       "admission": {"oldest_wait_ms": 12000},
       "kv": {"allocated_bytes": 817889280},
-      "disk": {"used_bytes": 2254857830, "limit_bytes": 34359738368, "writes_gated": "no"},
+      "disk": {"used_bytes": 2254857830, "limit_bytes": 34359738368, "writes_gated": "no",
+               "spilled_kv_read_bytes": 123456789, "weights_read_bytes": 987654321,
+               "written_last_hour_bytes": 5000000, "written_last_day_bytes": 60000000},
       "loop": {"max_tick_ms": 99.3},
       "ane_ffn": {"state": "split", "share": 0.558},
       "memory_actual": {"allocated_bytes": 1, "current_bytes": 22638821376, "peak_bytes": 22638821376},
@@ -115,6 +118,29 @@ final class StatusClientTests: XCTestCase {
         XCTAssertEqual(store.decodeGeneratedTokens, 240)
         XCTAssertEqual(store.decodeMaxTokens, 1024)
         XCTAssertEqual(store.decodeAgeSeconds, 45)
+        XCTAssertEqual(store.decodeGapP50, 1.2)
+        XCTAssertEqual(store.decodeGapP95, 4.5)
+        XCTAssertEqual(store.diskSpilledKvReadBytes, 123456789)
+        XCTAssertEqual(store.diskWeightsReadBytes, 987654321)
+        XCTAssertEqual(store.diskWrittenLastHourBytes, 5000000)
+        XCTAssertEqual(store.diskWrittenLastDayBytes, 60000000)
+        XCTAssertEqual(store.ssdReadBytes, 123456789 + 987654321)
+    }
+
+    /// The engine can turn off the SSD cache a start asked for (e.g. no room
+    /// on the disk): it reports why, and the flyout row shows it — while no
+    /// SSD traffic has happened the SSD reads row stays hidden.
+    func testDiskOffReasonAndReads() throws {
+        let store = MetricsStore()
+        store.apply(status: try decode(#"{"ready":true,"disk":{"off_reason":"no room","spilled_kv_read_bytes":5000}}"#))
+        XCTAssertEqual(store.diskOffReason, "no room")
+        XCTAssertNil(store.diskUsedBytes)
+        XCTAssertEqual(store.ssdReadBytes, 5000)
+
+        let s2 = MetricsStore()
+        s2.apply(status: try decode(#"{"ready":true}"#))
+        XCTAssertNil(s2.diskOffReason)
+        XCTAssertNil(s2.ssdReadBytes)
     }
 
     func testDraftAcceptanceFallsBackToCounts() {

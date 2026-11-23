@@ -28,6 +28,12 @@ final class SettingsModel: ObservableObject {
     @Published var disableANE: Bool
     @Published var maxCacheDisk: String
     @Published var persistentCache: Bool
+    @Published var maxConcurrentRequests: Int?
+    @Published var samplingDefaults: String
+    @Published var activations: String
+    @Published var verifyRows: String
+    @Published var cachedStates: String
+    @Published var recalibrateANE: Bool
     @Published var pinModelVersion: Bool
     @Published var refreshInterval: Double
     @Published var graphMinutes: Int
@@ -87,9 +93,27 @@ final class SettingsModel: ObservableObject {
     var modelError: String? {
         modelID.isEmpty ? "is required" : nil
     }
+    /// The sampling field names splash's --sampling-default accepts.
+    static let samplingFields = ["temperature", "top_p", "top_k", "min_p",
+                                 "presence_penalty", "frequency_penalty",
+                                 "repetition_penalty"]
+    /// Inline validation for the Sampling defaults field; nil = valid.
+    var samplingDefaultsError: String? {
+        for pair in samplingDefaults.split(whereSeparator: \.isWhitespace) {
+            let kv = pair.split(separator: "=", maxSplits: 1,
+                                omittingEmptySubsequences: false)
+            guard kv.count == 2,
+                  Self.samplingFields.contains(String(kv[0])),
+                  Double(kv[1]) != nil else {
+                return "must be NAME=VALUE pairs, NAME one of: "
+                    + Self.samplingFields.joined(separator: ", ")
+            }
+        }
+        return nil
+    }
     /// False while a field shows an error; Save is disabled then.
     var isValid: Bool {
-        portError == nil && modelError == nil
+        portError == nil && modelError == nil && samplingDefaultsError == nil
     }
 
     /// The selected model from the list (nil while Custom is shown).
@@ -118,6 +142,12 @@ final class SettingsModel: ObservableObject {
         disableANE = config.disableANE
         maxCacheDisk = config.maxCacheDisk ?? ""
         persistentCache = config.persistentCache
+        maxConcurrentRequests = config.maxConcurrentRequests
+        samplingDefaults = config.samplingDefaults ?? ""
+        activations = config.activations ?? "auto"
+        verifyRows = config.verifyRows ?? "auto"
+        cachedStates = config.cachedStates ?? "int8"
+        recalibrateANE = config.recalibrateANE
         pinModelVersion = config.pinModelVersion
         refreshInterval = config.refreshInterval
         graphMinutes = config.graphMinutes
@@ -162,6 +192,12 @@ final class SettingsModel: ObservableObject {
         c.stateFormat = stateFormat == "fp32" ? nil : stateFormat
         c.disableANE = disableANE
         c.persistentCache = persistentCache
+        c.maxConcurrentRequests = maxConcurrentRequests
+        c.samplingDefaults = Self.blank(samplingDefaults)
+        c.activations = activations == "auto" ? nil : activations
+        c.verifyRows = verifyRows == "auto" ? nil : verifyRows
+        c.cachedStates = cachedStates == "int8" ? nil : cachedStates
+        c.recalibrateANE = recalibrateANE
         c.pinModelVersion = pinModelVersion
         c.refreshInterval = refreshInterval
         c.graphMinutes = graphMinutes
@@ -231,6 +267,12 @@ final class SettingsModel: ObservableObject {
         stateFormat = d.stateFormat ?? "fp32"
         disableANE = d.disableANE
         persistentCache = d.persistentCache
+        maxConcurrentRequests = d.maxConcurrentRequests
+        samplingDefaults = d.samplingDefaults ?? ""
+        activations = d.activations ?? "auto"
+        verifyRows = d.verifyRows ?? "auto"
+        cachedStates = d.cachedStates ?? "int8"
+        recalibrateANE = d.recalibrateANE
         pinModelVersion = d.pinModelVersion
         refreshInterval = d.refreshInterval
         graphMinutes = d.graphMinutes
@@ -448,8 +490,50 @@ struct SettingsView: View {
                     .help("--disable-ane: prefill on the GPU alone. By default long prompts on dense models also use the Neural Engine when that's faster.")
                 Toggle("Persistent cache", isOn: $settings.persistentCache)
                     .help("--persistent-cache: keep the SSD prompt cache across restarts, so earlier conversations resume without re-prefilling.")
+                Picker("Concurrency limit", selection: $settings.maxConcurrentRequests) {
+                    ForEach(1...8, id: \.self) { n in
+                        if n == 4 {
+                            Text("4 (default)").tag(Int?.none)
+                        } else {
+                            Text("\(n)").tag(Int?.some(n))
+                        }
+                    }
+                }
+                .help("--max-concurrent-requests: requests the engine runs at once, 1 to 8 (default 4). More let more clients be answered together, each a little slower, and take memory for their states and arenas — where that streams more of the weights or leaves less context than four would, the start logs both.")
             } header: {
                 Text("splash serve — parameters")
+            } footer: {
+                Text("Changing a splash option restarts the server.")
+            }
+            Section {
+                TextField("Sampling defaults", text: $settings.samplingDefaults,
+                          prompt: Text("e.g. temperature=0.7 top_p=0.9"))
+                    .help("--sampling-default: the value of a sampling parameter for requests that set none — NAME=VALUE pairs, space separated, one of: temperature, top_p, top_k, min_p, presence_penalty, frequency_penalty, repetition_penalty. Blank = the served model's published sampling.")
+                if let err = settings.samplingDefaultsError {
+                    Text("Sampling defaults \(err)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                }
+                Picker("Activations", selection: $settings.activations) {
+                    Text("auto (default)").tag("auto")
+                    Text("bf16").tag("bf16")
+                }
+                .help("--activations: auto (default) rounds activations to 8 bits where the GPU multiplies them twice as fast (M5 and later) — faster, but outputs can differ at near ties; bf16 keeps every activation exact, for evaluations and parity.")
+                Picker("Verify rows", selection: $settings.verifyRows) {
+                    Text("auto (default)").tag("auto")
+                    Text("all").tag("all")
+                }
+                .help("--verify-rows: auto (default) picks each decode cycle's verified rows by the costs the start measured — faster, but greedy and seeded outputs can differ from run to run; all verifies every row, so those outputs repeat.")
+                Picker("Cached states", selection: $settings.cachedStates) {
+                    Text("int8 (default)").tag("int8")
+                    Text("exact").tag("exact")
+                }
+                .help("--cached-states: storage of cached recurrent states. int8 (default) codes take about a quarter of an fp32 state, and a restored state can differ at near ties; exact keeps the State format's precision, so a restore is exact.")
+                Toggle("Recalibrate Neural Engine", isOn: $settings.recalibrateANE)
+                    .disabled(settings.disableANE)
+                    .help("--recalibrate-ane: calibrate the Neural Engine's share of long prompts again at every start instead of taking the one this Mac kept. Useful after another app used the Neural Engine heavily — a calibration taken beside a busy Mac keeps a smaller share. Unavailable while the Neural Engine is disabled.")
+            } header: {
+                Text("splash serve — advanced")
             } footer: {
                 Text("Changing a splash option restarts the server.")
             }

@@ -309,4 +309,69 @@ final class SplashConfigTests: XCTestCase {
             XCTAssertFalse(c.serveArguments.contains("--revision"))
         }
     }
+
+    /// The splash 1.7.x flags: each non-default value becomes its flag,
+    /// one --sampling-default per pair, and none of them when the config
+    /// is at the defaults (blank = splash's own default).
+    func testServeArgumentsNewFlags() {
+        var c = SplashConfig.default
+        c.maxConcurrentRequests = 8
+        c.samplingDefaults = "temperature=0.7 top_p=0.9"
+        c.activations = "bf16"
+        c.verifyRows = "all"
+        c.cachedStates = "exact"
+        c.recalibrateANE = true
+        XCTAssertEqual(c.serveArguments, [
+            "splash", "serve",
+            "--model", "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M",
+            "--port", "8000",
+            "--max-concurrent-requests", "8",
+            "--sampling-default", "temperature=0.7",
+            "--sampling-default", "top_p=0.9",
+            "--activations", "bf16",
+            "--verify-rows", "all",
+            "--cached-states", "exact",
+            "--recalibrate-ane",
+        ])
+
+        // Default config passes none of the new flags.
+        let a = SplashConfig.default.serveArguments
+        for flag in ["--max-concurrent-requests", "--sampling-default",
+                     "--activations", "--verify-rows", "--cached-states",
+                     "--recalibrate-ane"] {
+            XCTAssertFalse(a.contains(flag), "unexpected \(flag)")
+        }
+
+        // splash refuses the pair: --recalibrate-ane needs the Neural Engine,
+        // so with --disable-ane on the app drops it rather than break the start.
+        var d = SplashConfig.default
+        d.recalibrateANE = true
+        d.disableANE = true
+        XCTAssertTrue(d.serveArguments.contains("--disable-ane"))
+        XCTAssertFalse(d.serveArguments.contains("--recalibrate-ane"))
+    }
+
+    /// A hand-edited config file can carry an out-of-range concurrency:
+    /// load clamps it into splash's 1–8 instead of failing the start.
+    func testLoadClampsConcurrency() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("splashmb-cfg-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        SplashConfig.configURLOverride = dir.appendingPathComponent(".splashmenubar.json")
+        defer { SplashConfig.configURLOverride = nil }
+        var c = SplashConfig.default
+        c.maxConcurrentRequests = 16
+        try JSONEncoder().encode(c).write(to: SplashConfig.configURL)
+        XCTAssertEqual(SplashConfig.load().config.maxConcurrentRequests, 8)
+        c.maxConcurrentRequests = 0
+        try JSONEncoder().encode(c).write(to: SplashConfig.configURL)
+        XCTAssertEqual(SplashConfig.load().config.maxConcurrentRequests, 1)
+        // An older file without the field decodes as nil (= splash's default):
+        // encodeIfPresent omits nil optionals, so this is exactly that file.
+        var old = SplashConfig.default
+        old.maxConcurrentRequests = nil
+        try JSONEncoder().encode(old).write(to: SplashConfig.configURL)
+        XCTAssertNil(SplashConfig.load().config.maxConcurrentRequests)
+    }
 }
