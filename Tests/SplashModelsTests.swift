@@ -19,6 +19,28 @@ final class SplashModelsTests: XCTestCase {
         XCTAssertNil(SplashModels.ggufVariant("model.gguf"))
     }
 
+    func testGgufVariantNoneForDraftsAndImatrix() {
+        // The Inkling repo root and dspark/ folder carry llama.cpp
+        // speculative-decoding drafts, not model quantizations.
+        XCTAssertNil(SplashModels.ggufVariant("dspark-Inkling-2-Mini-Q8_0.gguf"))
+        XCTAssertNil(SplashModels.ggufVariant("dspark-Inkling-2-Mini-Q8_0_Old.gguf"))
+        XCTAssertNil(SplashModels.ggufVariant("dspark/dspark-Inkling-2-Mini-BF16.gguf"))
+        // Qwen's MTP draft sits in a folder named after it.
+        XCTAssertNil(SplashModels.ggufVariant("MTP/mtp-Qwen3.8-27B-Q4_0.gguf"))
+        // imatrix files fail the quant regex, but the prefix guards them.
+        XCTAssertNil(SplashModels.ggufVariant("imatrix_unsloth.gguf"))
+    }
+
+    func testCompleteGGUFVariantsSkipsNonModelFiles() {
+        let files: [(path: String, size: Int64)] = [
+            ("Inkling-2-Mini-UD-Q4_K_M.gguf", 16_000),
+            ("mmproj-BF16.gguf", 640),
+            ("dspark-Inkling-2-Mini-Q8_0.gguf", 500),
+            ("dspark/dspark-Inkling-2-Mini-BF16.gguf", 648),
+        ]
+        XCTAssertEqual(ModelCache.completeGGUFVariants(files), ["UD-Q4_K_M"])
+    }
+
     func testSplitComplete() {
         XCTAssertTrue(SplashModels.splitComplete([]))
         XCTAssertTrue(SplashModels.splitComplete(["a.gguf"]))

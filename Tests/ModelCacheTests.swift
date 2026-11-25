@@ -292,5 +292,30 @@ final class ModelCacheTests: XCTestCase {
         XCTAssertEqual(r.arguments.count, 4)
         XCTAssertEqual(r.arguments[3], "abc123")
         XCTAssertTrue(r.display.contains("abc123"))
+
+        // A ":VARIANT" suffix scopes the download: the id handed to
+        // snapshot_download is the bare repo (huggingface_hub rejects the
+        // suffix), the variant only feeds allow_patterns.
+        let v = try XCTUnwrap(ModelCache.downloadCommand(
+            repo: "unsloth/Inkling-2-Mini-GGUF:UD-Q4_K_M", revision: nil))
+        XCTAssertEqual(v.arguments.count, 4)
+        XCTAssertEqual(v.arguments[2], "unsloth/Inkling-2-Mini-GGUF")
+        XCTAssertEqual(v.arguments[3],
+                       "*-UD-Q4_K_M.gguf,*-UD-Q4_K_M-*-of-*.gguf," +
+                       "UD-Q4_K_M/*.gguf,mmproj-*.gguf")
+        XCTAssertTrue(v.display.contains("unsloth/Inkling-2-Mini-GGUF"))
+        XCTAssertTrue(v.display.contains("UD-Q4_K_M"))
+        XCTAssertFalse(v.display.contains("unsloth/Inkling-2-Mini-GGUF:"))
+
+        // Variant and revision together: revision stays argv[2], the
+        // patterns follow as argv[3].
+        let vr = try XCTUnwrap(ModelCache.downloadCommand(
+            repo: "owner/repo:Q4_K_M", revision: "abc123"))
+        XCTAssertEqual(vr.arguments.count, 5)
+        XCTAssertEqual(vr.arguments[2], "owner/repo")
+        XCTAssertEqual(vr.arguments[3], "abc123")
+        XCTAssertEqual(vr.arguments[4],
+                       "*-Q4_K_M.gguf,*-Q4_K_M-*-of-*.gguf,Q4_K_M/*.gguf," +
+                       "mmproj-*.gguf")
     }
 }

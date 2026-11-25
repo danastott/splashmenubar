@@ -31,7 +31,7 @@ enum SplashModels {
     private static let tsvCatalog: [KnownModel]? = loadTsvCatalog()
 
     /// One recommended GGUF / MLX build per supported family
-    /// (https://github.com/incoai/splash#models), as of splash 1.5.
+    /// (https://github.com/incoai/splash#models), as of splash 1.7.3.
     static let fallbackCatalog: [KnownModel] = [
         .init(id: "unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M", label: "Qwen3.8 27B · GGUF UD-Q4_K_M"),
         .init(id: "mlx-community/Qwen3.8-27B-4bit", label: "Qwen3.8 27B · MLX 4-bit"),
@@ -41,6 +41,9 @@ enum SplashModels {
         .init(id: "ornith-ai/Ornith-1.5-122B-MLX-4bit", label: "Ornith 1.5 122B · MLX 4-bit"),
         .init(id: "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF:Q2_0", label: "Qwen3.8 Flash-Next · GGUF Q2_0"),
         .init(id: "unsloth/flint-GGUF:UD-Q4_K_XL", label: "Flint · GGUF UD-Q4_K_XL"),
+        .init(id: "unsloth/Inkling-2-Mini-GGUF:UD-Q4_K_M", label: "Inkling-2-Mini · GGUF UD-Q4_K_M"),
+        .init(id: "mlx-community/Inkling-2-Mini-4bit", label: "Inkling-2-Mini · MLX 4-bit"),
+        .init(id: "unsloth/Inkling-2-Mini-GGUF:UD-IQ3_XXS", label: "Inkling-2-Mini · GGUF UD-IQ3_XXS"),
         .init(id: "prism-ml/Ternary-Bonsai-2-27B-gguf:PQ2_0", label: "Ternary Bonsai 2 27B · GGUF PQ2_0"),
     ]
 
@@ -246,13 +249,27 @@ enum SplashModels {
         return out
     }
 
+    /// Prefixes of file names (or folder names) that are not model
+    /// quantizations: vision projectors (`mmproj-*`), speculative-decoding
+    /// drafts (`dspark-*` files, `MTP/` folders with `mtp-*` files) and
+    /// imatrix files.
+    private static let nonModelGGUFPrefixes = ["mmproj", "dspark", "mtp", "imatrix"]
+
+    private static func isNonModelGGUF(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return nonModelGGUFPrefixes.contains { lower.hasPrefix($0) }
+    }
+
     /// The quant tag of a GGUF path: its folder for split files kept in one
     /// (unsloth's `UD-Q4_K_XL/…-00001-of-00003.gguf`), else the trailing tag
     /// of the file name (`Qwen3.8-27B-UD-Q4_K_M.gguf` → `UD-Q4_K_M`).
-    /// Vision projectors (mmproj) have none.
+    /// Vision projectors, drafts and imatrix files have none.
     static func ggufVariant(_ path: String) -> String? {
         let parts = path.split(separator: "/").map(String.init)
-        guard let file = parts.last, !file.lowercased().hasPrefix("mmproj") else { return nil }
+        guard let file = parts.last,
+              !parts.dropLast().contains(where: isNonModelGGUF),
+              !isNonModelGGUF(file)
+        else { return nil }
         if parts.count > 1 { return parts[parts.count - 2] }
         var stem = String(file.dropLast(".gguf".count))
         if let r = stem.range(of: #"-\d{5}-of-\d{5}$"#, options: .regularExpression) {
