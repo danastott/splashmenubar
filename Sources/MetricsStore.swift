@@ -54,6 +54,10 @@ final class MetricsStore: ObservableObject {
     // Log-derived (per request).
     @Published var requests: [RequestMetrics] = []
     @Published var logLines: [String] = []
+    /// Emits each request as it finishes, from the server's Done log line.
+    /// App-launched servers only — an adopted external server has no log
+    /// for the app to parse.
+    let requestFinished = PassthroughSubject<RequestMetrics, Never>()
     @Published var weightsLoadSeconds: Double?
 
     // Endpoint-derived (live, from /status).
@@ -344,6 +348,7 @@ final class MetricsStore: ObservableObject {
                     ttft: r.ttftSeconds,
                     tps: r.tokensPerSecond
                 )
+                requestFinished.send(r)
             }
         case .thermal(_, let to):
             thermalState = to

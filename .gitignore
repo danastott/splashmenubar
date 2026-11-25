@@ -3,3 +3,5 @@ build/
 *.zip
 .DS_Store
 IDEAS.md
+# A Finder alias of the built app, not source.
+SplashMenuBar alias

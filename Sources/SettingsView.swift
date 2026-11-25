@@ -40,6 +40,7 @@ final class SettingsModel: ObservableObject {
     @Published var autoRestart: Bool
     @Published var startServerOnLaunch: Bool
     @Published var launchAtLogin: Bool
+    @Published var notifyRequestFinish: Bool
     @Published var theme: UITheme
     @Published var temperatureUnit: TemperatureUnit
     /// UI language choice ("" = system); persisted to app defaults, not to
@@ -154,6 +155,7 @@ final class SettingsModel: ObservableObject {
         autoRestart = config.autoRestart
         startServerOnLaunch = config.startServerOnLaunch
         launchAtLogin = config.launchAtLogin
+        notifyRequestFinish = config.notifyRequestFinish
         theme = config.theme
         temperatureUnit = config.temperatureUnit
         language = AppLanguage.selected()
@@ -204,6 +206,7 @@ final class SettingsModel: ObservableObject {
         c.autoRestart = autoRestart
         c.startServerOnLaunch = startServerOnLaunch
         c.launchAtLogin = launchAtLogin
+        c.notifyRequestFinish = notifyRequestFinish
         c.theme = theme
         c.temperatureUnit = temperatureUnit
         // The flyout's pin state and position live with the app, not the
@@ -279,6 +282,7 @@ final class SettingsModel: ObservableObject {
         autoRestart = d.autoRestart
         startServerOnLaunch = d.startServerOnLaunch
         launchAtLogin = d.launchAtLogin
+        notifyRequestFinish = d.notifyRequestFinish
         theme = d.theme
         language = ""
         didResetToDefaults = true
@@ -571,6 +575,8 @@ struct SettingsView: View {
                     .help("Start the splash server with the model above whenever Splash Menu Bar launches. Off by default: the app opens with the server stopped (a splash already running on the port is still picked up), and you press Start. Changing it does not restart the server.")
                 Toggle("Launch at login", isOn: $settings.launchAtLogin)
                     .help("Start Splash Menu Bar when you log in — with Start 'splash' server on launch also on, the splash server comes up without opening the app. Registered as a system login item (System Settings → General → Login Items); changing it does not restart the server.")
+                Toggle("Notify when a request finishes", isOn: $settings.notifyRequestFinish)
+                    .help("Post a notification when a request that ran at least \(Int(RequestMetrics.notifyMinSeconds)) seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server.")
                 Picker("Appearance", selection: $settings.theme) {
                     ForEach(UITheme.allCases, id: \.self) { t in
                         Text(t.label).tag(t)

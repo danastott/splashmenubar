@@ -162,4 +162,78 @@ final class MetricsStoreTests: XCTestCase {
         store.resetForRestart()
         XCTAssertFalse(store.requestStuck)
     }
+
+    // MARK: - Request-finished notification threshold
+
+    private func doneRequest(output: Int?, tps: Double?, ttft: Double? = nil) -> RequestMetrics {
+        RequestMetrics(id: 1, isStarted: false, timestamp: Date(),
+                       input: 100, cached: nil, deduplicated: nil,
+                       output: output, ttftSeconds: ttft,
+                       tokensPerSecond: tps, tokensPerCycle: nil)
+    }
+
+    /// Runs `body` with the daily-stats file redirected to a temp directory,
+    /// so the log ingest below never touches the real TODAY stats.
+    private func withIsolatedStats(_ body: () -> Void) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("splashmenubar-stats-\(UUID().uuidString)", isDirectory: true)
+        StatsStore.statsURLOverride = dir.appendingPathComponent("stats.json")
+        StatsStore.shared.resetForTesting()
+        defer {
+            StatsStore.statsURLOverride = nil
+            StatsStore.shared.resetForTesting()
+            try? FileManager.default.removeItem(at: dir)
+        }
+        body()
+    }
+
+    func testRequestSecondsIsTTFTPlusDecode() {
+        // splash's Done line reports TTFT separately from the decode speed,
+        // so the wall-clock estimate is TTFT + output ÷ speed.
+        XCTAssertEqual(doneRequest(output: 2000, tps: 80).requestSeconds, 25)
+        XCTAssertEqual(doneRequest(output: 206, tps: 74.4, ttft: 43).requestSeconds!,
+                       43 + 206 / 74.4, accuracy: 0.001)
+        XCTAssertTrue(doneRequest(output: 2000, tps: 80).worthNotifying)
+    }
+
+    func testLongPrefillWithShortAnswerNotifies() {
+        // A cold long prompt that answered briefly still ran ~46 s: the
+        // decode time alone (2.8 s) must not keep it silent.
+        let cold = doneRequest(output: 206, tps: 74.4, ttft: 43)
+        XCTAssertTrue(cold.worthNotifying)
+        // A Done line with only a TTFT still gives a lower bound.
+        XCTAssertEqual(doneRequest(output: nil, tps: nil, ttft: 12).requestSeconds, 12)
+        XCTAssertTrue(doneRequest(output: nil, tps: nil, ttft: 12).worthNotifying)
+    }
+
+    func testShortRequestNotWorthNotifying() {
+        XCTAssertEqual(doneRequest(output: 200, tps: 100).requestSeconds, 2)
+        XCTAssertFalse(doneRequest(output: 200, tps: 100).worthNotifying)
+        XCTAssertFalse(doneRequest(output: 200, tps: 100, ttft: 1).worthNotifying)
+        // Exactly the threshold still notifies.
+        XCTAssertTrue(doneRequest(output: 100, tps: 10).worthNotifying)
+    }
+
+    func testUntimableRequestNotWorthNotifying() {
+        // No speed, output or TTFT in the Done line: the duration can't be
+        // estimated, so the request stays silent instead of guessing.
+        XCTAssertFalse(doneRequest(output: 200, tps: nil).worthNotifying)
+        XCTAssertFalse(doneRequest(output: nil, tps: 100).worthNotifying)
+        XCTAssertFalse(doneRequest(output: 200, tps: 0).worthNotifying)
+    }
+
+    func testHandleDoneLineEmitsFinishedRequest() {
+        withIsolatedStats {
+            let store = makeStore()
+            var finished: [RequestMetrics] = []
+            let sub = store.requestFinished.sink { finished.append($0) }
+            defer { sub.cancel() }
+            store.handle(line: "12:00:01 req 7 Started")
+            XCTAssertTrue(finished.isEmpty, "a Started line is not a completion")
+            store.handle(line: "12:00:30 req 7 Done · input 1200 · output 2000 · TTFT 0.31s · 80 tok/s")
+            XCTAssertEqual(finished.count, 1)
+            XCTAssertEqual(finished[0].output, 2000)
+            XCTAssertTrue(finished[0].worthNotifying)
+        }
+    }
 }

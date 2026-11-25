@@ -45,6 +45,33 @@ struct RequestMetrics: Identifiable, Equatable {
     let tokensPerCycle: Double?
 }
 
+extension RequestMetrics {
+    /// The request's wall-clock time in seconds, estimated from the Done
+    /// line: splash reports TTFT (the wait for the first token, which
+    /// includes the prompt's prefill) separately from the average decode
+    /// speed, so the total is TTFT plus output ÷ speed. The decode time
+    /// alone would hide a long prompt that then answered briefly.
+    var requestSeconds: Double? {
+        let decode: Double? = {
+            guard let output, let tps = tokensPerSecond, tps > 0 else { return nil }
+            return Double(output) / tps
+        }()
+        if let ttft = ttftSeconds { return ttft + (decode ?? 0) }
+        return decode
+    }
+
+    /// Requests shorter than this never notify — chat-sized replies would
+    /// be noise. The long ones are the "it's done, come back" case.
+    static let notifyMinSeconds: Double = 10
+
+    /// Whether this finished request ran long enough to be worth a
+    /// notification. One the log line gave no time for at all stays silent.
+    var worthNotifying: Bool {
+        guard let seconds = requestSeconds else { return false }
+        return seconds >= Self.notifyMinSeconds
+    }
+}
+
 enum SplashParser {
     /// Parse one line of `splash serve` output. Lines that carry no
     /// machine-readable payload come back as `.raw`.

@@ -428,3 +428,7 @@
 "Read from the SSD since startup: %@ of spilled prompt context, %@ of streamed weights." = "Прочитано с SSD с момента запуска: %@ переполненного контекста промпта, %@ стримованных весов.";
 "Read from the SSD since startup: %@ of streamed weights." = "Прочитано с SSD с момента запуска: %@ стримованных весов.";
 "Read from the SSD since startup: %@ of spilled prompt context." = "Прочитано с SSD с момента запуска: %@ переполненного контекста промпта.";
+"Notify when a request finishes" = "Уведомлять о завершении запроса";
+"Request finished" = "Запрос завершён";
+"%@ tok · %@ t/s" = "%@ ток. · %@ t/s";
+"Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server." = "Показывает уведомление, когда завершается запрос, длившийся не менее %lld секунд, с количеством токенов вывода и скоростью. Более короткие запросы уведомления не отправляют. Только серверы, запущенные приложением — у сервера, запущенного вне приложения, нет лога, который приложение могло бы читать. Изменение не перезапускает сервер.";

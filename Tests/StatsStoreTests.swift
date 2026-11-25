@@ -3,19 +3,23 @@ import XCTest
 
 final class StatsStoreTests: XCTestCase {
 
-    private func cleanStore() {
-        let url = StatsStore.statsURL()
-        try? FileManager.default.removeItem(at: url)
-        StatsStore.shared.resetForTesting()
-    }
+    private var statsDir: URL!
 
     override func setUp() {
         super.setUp()
-        cleanStore()
+        // Redirect persistence to a temp file: these tests must not read,
+        // overwrite or delete the real ~/Library/Application Support stats.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("splashmenubar-stats-\(UUID().uuidString)", isDirectory: true)
+        statsDir = dir
+        StatsStore.statsURLOverride = dir.appendingPathComponent("stats.json")
+        StatsStore.shared.resetForTesting()
     }
 
     override func tearDown() {
-        cleanStore()
+        StatsStore.statsURLOverride = nil
+        StatsStore.shared.resetForTesting()
+        try? FileManager.default.removeItem(at: statsDir)
         super.tearDown()
     }
 

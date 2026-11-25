@@ -428,3 +428,7 @@
 "Read from the SSD since startup: %@ of spilled prompt context, %@ of streamed weights." = "시작 이후 SSD에서 읽기: 넘친 프롬프트 컨텍스트 %@, 스트리밍된 가중치 %@.";
 "Read from the SSD since startup: %@ of streamed weights." = "시작 이후 SSD에서 읽기: 스트리밍된 가중치 %@.";
 "Read from the SSD since startup: %@ of spilled prompt context." = "시작 이후 SSD에서 읽기: 넘친 프롬프트 컨텍스트 %@.";
+"Notify when a request finishes" = "요청 완료 시 알림";
+"Request finished" = "요청 완료";
+"%@ tok · %@ t/s" = "%@ 토큰 · %@ t/s";
+"Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server." = "최소 %lld초 이상 걸린 요청이 끝나면 출력 토큰 수와 속도와 함께 알림을 표시합니다. 더 짧은 요청은 알림을 보내지 않습니다. 앱이 시작한 서버만 대상입니다 — 앱 밖에서 시작한 서버는 앱이 읽을 로그가 없습니다. 변경해도 서버는 다시 시작되지 않습니다.";

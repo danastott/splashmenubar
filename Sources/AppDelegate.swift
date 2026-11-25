@@ -526,6 +526,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static let startActionID = "splash.start"
     private static let crashCategoryID = "splash.crash"
+    /// Tags the "Request finished" banner so a click can reopen the flyout
+    /// (it carries no action button).
+    private static let requestFinishedCategoryID = "splash.requestFinished"
 
     /// Crash notifications carry a "Start splash" action; requesting
     /// authorization once at launch surfaces the system prompt.
@@ -575,13 +578,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UNUserNotificationCenter.current().add(request)
     }
 
-    /// Posts a plain banner (no actions), like the crash one.
-    private func postNotification(title: String, body: String) {
+    /// Posts a plain banner (no actions), like the crash one. The title is
+    /// the identifier by default, so a repeated banner replaces its
+    /// predecessor; a caller that wants each one kept passes an identifier.
+    private func postNotification(title: String, body: String,
+                                  identifier: String? = nil,
+                                  category: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
-        let request = UNNotificationRequest(identifier: title, content: content, trigger: nil)
+        content.categoryIdentifier = category ?? ""
+        let request = UNNotificationRequest(identifier: identifier ?? title,
+                                            content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
 
@@ -626,6 +635,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, stuck else { return }
                 self.postNotification(title: String(localized: "Request appears stuck"),
                                       body: String(localized: "A request has made no progress for 1 minute. Restart usually clears it."))
+            }
+            .store(in: &cancellables)
+
+        // A request long enough to mean the user is away finished: the
+        // Done line carries its output count and speed. App-launched
+        // servers only (an adopted server has no log to parse). Each
+        // banner is kept (a unique identifier) so back-to-back finishes
+        // don't replace one another; clicking one reopens the flyout.
+        store.requestFinished
+            .filter(\.worthNotifying)
+            .sink { [weak self] r in
+                guard let self, self.config.notifyRequestFinish else { return }
+                self.postNotification(
+                    title: String(localized: "Request finished"),
+                    body: String(localized: "\(Fmt.int(r.output)) tok · \(Fmt.double(r.tokensPerSecond, 0)) t/s"),
+                    identifier: UUID().uuidString,
+                    category: Self.requestFinishedCategoryID)
             }
             .store(in: &cancellables)
 
@@ -1470,7 +1496,18 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                                 withCompletionHandler completionHandler:
                                 @escaping () -> Void) {
         defer { completionHandler() }
-        guard response.actionIdentifier == Self.startActionID else { return }
-        startServer()
+        if response.actionIdentifier == Self.startActionID {
+            startServer()
+            return
+        }
+        // A plain click on "Request finished": bring the flyout back, since
+        // the point of the banner is to call the user back to the app.
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+              response.notification.request.content.categoryIdentifier
+                == Self.requestFinishedCategoryID else { return }
+        DispatchQueue.main.async { [weak self] in
+            NSApp.activate(ignoringOtherApps: true)
+            self?.reopenPanel()
+        }
     }
 }
