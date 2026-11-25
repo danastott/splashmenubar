@@ -52,7 +52,11 @@ final class StatsStore {
 
     // MARK: - Persistence
 
+    /// Overridable in tests; production always uses Application Support.
+    static var statsURLOverride: URL?
+
     static func statsURL() -> URL {
+        if let override = statsURLOverride { return override }
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return dir.appendingPathComponent("splashmenubar/stats.json")
     }

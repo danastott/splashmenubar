@@ -13,6 +13,9 @@ final class SplashConfigTests: XCTestCase {
         c.pinModelVersion = true
         c.panelPinned = true
         c.pinnedPanelTopLeft = SplashConfig.PanelTopLeft(x: 123.5, y: 640.0)
+        // Toggle away from the default so a field missing from the encoded
+        // JSON would be caught (the decoder's default would restore it).
+        c.notifyRequestFinish = true
         let data = try JSONEncoder().encode(c)
         let d = try JSONDecoder().decode(SplashConfig.self, from: data)
         XCTAssertEqual(d, c)
@@ -39,6 +42,7 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertFalse(c.pinModelVersion)
         XCTAssertFalse(c.panelPinned)
         XCTAssertNil(c.pinnedPanelTopLeft)
+        XCTAssertFalse(c.notifyRequestFinish)
     }
 
     /// Appearance and gauge colors persist, and a file written before they
@@ -161,6 +165,7 @@ final class SplashConfigTests: XCTestCase {
         c.autoRestart = true
         c.launchAtLogin = true
         c.startServerOnLaunch = true
+        c.notifyRequestFinish = true
         c.theme = .dark
         c.gaugeColors = ["tok": "#123456"]
         let m = SettingsModel(config: c)
@@ -187,6 +192,7 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertFalse(m.autoRestart)
         XCTAssertFalse(m.launchAtLogin)
         XCTAssertFalse(m.startServerOnLaunch)
+        XCTAssertFalse(m.notifyRequestFinish)
         XCTAssertEqual(m.refreshInterval, d.refreshInterval)
         XCTAssertEqual(m.graphMinutes, d.graphMinutes)
         // The reset form is valid and maps to the defaults on Save.
@@ -194,6 +200,7 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertEqual(m.asConfig.model, d.model)
         XCTAssertEqual(m.asConfig.port, d.port)
         XCTAssertNil(m.asConfig.maxMemory)
+        XCTAssertFalse(m.asConfig.notifyRequestFinish)
         XCTAssertEqual(m.theme, d.theme)
         // A reset clears the gauge colors a following Save would carry.
         XCTAssertTrue(m.resetToDefaultsApplied)

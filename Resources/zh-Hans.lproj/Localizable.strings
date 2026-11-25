@@ -428,3 +428,7 @@
 "Read from the SSD since startup: %@ of spilled prompt context, %@ of streamed weights." = "启动以来从 SSD 读取:溢出的提示词上下文 %@、流式加载的权重 %@。";
 "Read from the SSD since startup: %@ of streamed weights." = "启动以来从 SSD 读取:流式加载的权重 %@。";
 "Read from the SSD since startup: %@ of spilled prompt context." = "启动以来从 SSD 读取:溢出的提示词上下文 %@。";
+"Notify when a request finishes" = "请求完成时通知我";
+"Request finished" = "请求已完成";
+"%@ tok · %@ t/s" = "%@ token · %@ t/s";
+"Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server." = "请求运行至少 %lld 秒后完成时，发一条通知，附上输出 token 数和速度。更短的请求不通知。仅适用于应用启动的服务器——在应用外启动的服务器没有可供应用读取的日志。更改此选项不会重启服务器。";

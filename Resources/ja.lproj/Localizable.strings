@@ -428,3 +428,7 @@
 "Read from the SSD since startup: %@ of spilled prompt context, %@ of streamed weights." = "開始以来の SSD からの読み込み: 溢れたプロンプトコンテキスト %@、ストリーミングされた重み %@。";
 "Read from the SSD since startup: %@ of streamed weights." = "開始以来の SSD からの読み込み: ストリーミングされた重み %@。";
 "Read from the SSD since startup: %@ of spilled prompt context." = "開始以来の SSD からの読み込み: 溢れたプロンプトコンテキスト %@。";
+"Notify when a request finishes" = "リクエスト完了時に通知";
+"Request finished" = "リクエスト完了";
+"%@ tok · %@ t/s" = "%@ トークン · %@ t/s";
+"Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server." = "少なくとも %lld 秒かかったリクエストが完了したときに、出力トークン数と速度を付けて通知します。それより短いリクエストは通知しません。アプリが起動したサーバーのみ対象です — アプリ外で起動したサーバーには、アプリが読めるログがありません。変更してもサーバーは再起動されません。";

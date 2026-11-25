@@ -429,3 +429,7 @@
 "Read from the SSD since startup: %@ of spilled prompt context, %@ of streamed weights." = "Von der SSD gelesen seit Start: %@ an überlaufenem Prompt-Kontext, %@ an gestreamten Gewichten.";
 "Read from the SSD since startup: %@ of streamed weights." = "Von der SSD gelesen seit Start: %@ an gestreamten Gewichten.";
 "Read from the SSD since startup: %@ of spilled prompt context." = "Von der SSD gelesen seit Start: %@ an überlaufenem Prompt-Kontext.";
+"Notify when a request finishes" = "Benachrichtigung bei abgeschlossener Anfrage";
+"Request finished" = "Anfrage abgeschlossen";
+"%@ tok · %@ t/s" = "%@ Tok · %@ t/s";
+"Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server." = "Postet eine Benachrichtigung, wenn eine Anfrage, die mindestens %lld Sekunden lief, abgeschlossen ist, mit ihren Ausgabetokens und der Geschwindigkeit. Kürzere Anfragen bleiben still. Nur von der App gestartete Server — ein außerhalb der App gestarteter Server hat kein Log, das die App lesen könnte. Die Änderung startet den Server nicht neu.";

@@ -429,3 +429,7 @@
 "Read from the SSD since startup: %@ of spilled prompt context, %@ of streamed weights." = "啟動以來從 SSD 讀取：溢出的提示詞上下文 %@、串流載入的權重 %@。";
 "Read from the SSD since startup: %@ of streamed weights." = "啟動以來從 SSD 讀取：串流載入的權重 %@。";
 "Read from the SSD since startup: %@ of spilled prompt context." = "啟動以來從 SSD 讀取：溢出的提示詞上下文 %@。";
+"Notify when a request finishes" = "請求完成時通知我";
+"Request finished" = "請求已完成";
+"%@ tok · %@ t/s" = "%@ token · %@ t/s";
+"Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server." = "請求執行至少 %lld 秒後完成時，發一條通知，附上輸出 token 數和速度。更短的請求不通知。僅適用於應用啟動的伺服器——在應用外啟動的伺服器沒有可供應用讀取的日誌。變更此選項不會重新啟動伺服器。";

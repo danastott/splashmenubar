@@ -429,3 +429,7 @@
 "Read from the SSD since startup: %@ of spilled prompt context, %@ of streamed weights." = "Read from the SSD since startup: %@ of spilled prompt context, %@ of streamed weights.";
 "Read from the SSD since startup: %@ of streamed weights." = "Read from the SSD since startup: %@ of streamed weights.";
 "Read from the SSD since startup: %@ of spilled prompt context." = "Read from the SSD since startup: %@ of spilled prompt context.";
+"Notify when a request finishes" = "Notify when a request finishes";
+"Request finished" = "Request finished";
+"%@ tok · %@ t/s" = "%@ tok · %@ t/s";
+"Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server." = "Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server.";
