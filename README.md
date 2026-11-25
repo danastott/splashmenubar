@@ -42,7 +42,8 @@ details.
 The Settings window's tabs: **Model** — the served model, its size on disk,
 the model cache and version pinning; **AI harness** — the installed coding
 harnesses and Auto Connect; **Server** — the `splash serve` parameters;
-**App** — UI refresh, auto-restart, launch options and appearance.
+**Notifications** — the per-banner notification toggles; **App** — UI
+refresh, auto-restart, launch options and appearance.
 
 ![The Settings window's Model tab: the served model with its on-disk size, the model cache button and version pinning](settings_model.png)
 
@@ -172,8 +173,10 @@ harnesses and Auto Connect; **Server** — the `splash serve` parameters;
   **Thermal: serious / critical** (on each crossing into a hot state),
   **splash released the model** (when the server frees the weights from
   memory after idleness), and **Request finished** (when a request that ran
-  at least 10 seconds ends, if enabled in Settings; clicking it reopens the
-  flyout). If a *non-splash* service holds the port, the
+  at least 10 seconds ends; clicking it reopens the flyout). Each banner
+  has its own toggle on the Settings **Notifications** tab (stored as the
+  `notifications` map) — all on by default, **Request finished** off.
+  If a *non-splash* service holds the port, the
   child dies with "address in use" and the flyout instead shows an orange
   **port in use** card — "Something else (not splash) is serving port N…
   Stop that service — or change the port in Settings — then press Start."
@@ -349,13 +352,18 @@ launches. **Launch at login** (stored as `launchAtLogin`) registers
 the app as a system login item (System Settings › General › Login Items), so
 it starts when you log in — and the splash server too, with Start server on
 launch on; a registration failure is
-reported and not saved. **Notify when a request finishes** (stored as
-`notifyRequestFinish`, off by default) posts a notification when a request
-that ran at least 10 seconds ends — TTFT plus decode time, so a long prompt
-that answered briefly still counts — with its output tokens and decode
-speed. Only a server the app started has a log to read, and clicking the
-banner reopens the flyout. **Appearance** (stored as `theme`) picks the UI's
-color scheme — System, Light or Dark — for the flyout and every window.
+reported and not saved. The **Notifications** tab (stored as the
+`notifications` map) switches each banner individually: **Request finished**
+(a request that ran at least 10 seconds ends — TTFT plus decode time, so a
+long prompt that answered briefly still counts — with its output tokens and
+decode speed; only a server the app started has a log to read, and clicking
+the banner reopens the flyout), **Request appears stuck** (no progress for a
+minute), **Model ready** (a downloaded model is loaded and serving),
+**Thermal warnings** (serious or critical), **splash released the model**
+(weights freed after idleness) and **splash exited**. All are on by default
+except **Request finished**, which is off. **Appearance** (stored as
+`theme`) picks the UI's color scheme — System, Light or Dark — for the
+flyout and every window.
 **Reset to defaults** in the footer puts every field
 back to its default (blank = splash's own default for that flag); nothing is
 saved until you press Save.

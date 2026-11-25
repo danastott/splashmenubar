@@ -432,4 +432,11 @@
 "Notify when a request finishes" = "請求完成時通知我";
 "Request finished" = "請求已完成";
 "%@ tok · %@ t/s" = "%@ token · %@ t/s";
+"Notifications" = "通知";
+"Thermal warnings" = "散熱警告";
+"Post a notification when a request makes no progress for a minute; the flyout also shows an orange stuck card. Changing it does not restart the server." = "請求一分鐘沒有進展時發佈通知;彈出面板還會顯示一張橙色的卡住卡片。只變更此項不會重啟伺服器。";
+"Post a notification when a downloaded model has loaded and is serving; loading a model that is already on disk stays silent. Changing it does not restart the server." = "已下載的模型載入完畢並開始服務時發佈通知;載入磁碟上已有的模型時保持安靜。只變更此項不會重啟伺服器。";
+"Post a notification when the Mac's thermal state crosses into serious or critical, when the CPU and GPU are being throttled and generation slows down. Changing it does not restart the server." = "Mac 的散熱狀態進入 serious 或 critical 時(此時 CPU 和 GPU 被節流,生成變慢)發佈通知。只變更此項不會重啟伺服器。";
+"Post a notification when, after idleness, splash frees the model weights from memory to give the RAM back; the next request restores them and is slower. Changing it does not restart the server." = "閒置之後 splash 從記憶體中釋放模型權重以歸還 RAM 時發佈通知;下一個請求會重新載入它們,速度會變慢。只變更此項不會重啟伺服器。";
+"Post a notification with a Start splash action when splash exits on its own. A crash that is being auto-restarted stays silent either way. Changing it does not restart the server." = "splash 自行退出時發佈通知,其中帶有啟動 splash 的操作。正在自動重啟的崩潰無論設定如何都保持安靜。只變更此項不會重啟伺服器。";
 "Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server." = "請求執行至少 %lld 秒後完成時，發一條通知，附上輸出 token 數和速度。更短的請求不通知。僅適用於應用啟動的伺服器——在應用外啟動的伺服器沒有可供應用讀取的日誌。變更此選項不會重新啟動伺服器。";

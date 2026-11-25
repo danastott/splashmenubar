@@ -431,4 +431,11 @@
 "Notify when a request finishes" = "요청 완료 시 알림";
 "Request finished" = "요청 완료";
 "%@ tok · %@ t/s" = "%@ 토큰 · %@ t/s";
+"Notifications" = "알림";
+"Thermal warnings" = "발열 경고";
+"Post a notification when a request makes no progress for a minute; the flyout also shows an orange stuck card. Changing it does not restart the server." = "요청이 1분 동안 진행되지 않으면 알림을 게시합니다. 플라이아웃에도 주황색 스택 카드가 표시됩니다. 이 항목만 변경해도 서버는 다시 시작되지 않습니다.";
+"Post a notification when a downloaded model has loaded and is serving; loading a model that is already on disk stays silent. Changing it does not restart the server." = "다운로드한 모델이 로드되어 서빙하기 시작하면 알림을 게시합니다. 이미 디스크에 있는 모델의 로드는 조용한 채로 남습니다. 이 항목만 변경해도 서버는 다시 시작되지 않습니다.";
+"Post a notification when the Mac's thermal state crosses into serious or critical, when the CPU and GPU are being throttled and generation slows down. Changing it does not restart the server." = "Mac의 발열 상태가 serious 또는 critical로 진입하면, CPU와 GPU가 스로틀링되고 생성이 느려질 때 알림을 게시합니다. 이 항목만 변경해도 서버는 다시 시작되지 않습니다.";
+"Post a notification when, after idleness, splash frees the model weights from memory to give the RAM back; the next request restores them and is slower. Changing it does not restart the server." = "유휴 후 splash가 RAM을 반환하기 위해 메모리에서 모델 가중치를 해제하면 알림을 게시합니다. 다음 요청은 이를 복원하므로 더 느립니다. 이 항목만 변경해도 서버는 다시 시작되지 않습니다.";
+"Post a notification with a Start splash action when splash exits on its own. A crash that is being auto-restarted stays silent either way. Changing it does not restart the server." = "splash가 스스로 종료되면 splash 시작 작업이 포함된 알림을 게시합니다. 자동 재시작 중인 충돌은 항상 조용한 채로 남습니다. 이 항목만 변경해도 서버는 다시 시작되지 않습니다.";
 "Post a notification when a request that ran at least %lld seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server." = "최소 %lld초 이상 걸린 요청이 끝나면 출력 토큰 수와 속도와 함께 알림을 표시합니다. 더 짧은 요청은 알림을 보내지 않습니다. 앱이 시작한 서버만 대상입니다 — 앱 밖에서 시작한 서버는 앱이 읽을 로그가 없습니다. 변경해도 서버는 다시 시작되지 않습니다.";

@@ -584,6 +584,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func postCrashNotification(_ info: CrashInfo) {
+        guard config.notificationsEnabled(.crash) else { return }
         let content = UNMutableNotificationContent()
         content.title = String(localized: "splash exited")
         content.body = String(localized: "\(info.description) — the server is stopped.")
@@ -621,6 +622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 guard self.store.modelDownloadedThisStartup else { return }
                 self.store.modelDownloadedThisStartup = false
+                guard self.config.notificationsEnabled(.modelReady) else { return }
                 self.postNotification(title: String(localized: "Model ready"),
                                       body: String(localized: "\(model ?? String(localized: "the model")) finished downloading, is loaded and serving."))
             }
@@ -630,7 +632,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.$thermalState
             .removeDuplicates()
             .sink { [weak self] state in
-                guard let self, let state else { return }
+                guard let self, let state,
+                      self.config.notificationsEnabled(.thermal) else { return }
                 switch state {
                 case "serious":
                     self.postNotification(title: String(localized: "Thermal: serious"),
@@ -648,7 +651,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.$requestStuck
             .removeDuplicates()
             .sink { [weak self] stuck in
-                guard let self, stuck else { return }
+                guard let self, stuck,
+                      self.config.notificationsEnabled(.requestStuck) else { return }
                 self.postNotification(title: String(localized: "Request appears stuck"),
                                       body: String(localized: "A request has made no progress for 1 minute. Restart usually clears it."))
             }
@@ -662,7 +666,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.requestFinished
             .filter(\.worthNotifying)
             .sink { [weak self] r in
-                guard let self, self.config.notifyRequestFinish else { return }
+                guard let self,
+                      self.config.notificationsEnabled(.requestFinished) else { return }
                 self.postNotification(
                     title: String(localized: "Request finished"),
                     body: String(localized: "\(Fmt.int(r.output)) tok · \(Fmt.double(r.tokensPerSecond, 0)) t/s"),
@@ -675,7 +680,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.$weightsReleased
             .removeDuplicates()
             .sink { [weak self] released in
-                guard let self, released else { return }
+                guard let self, released,
+                      self.config.notificationsEnabled(.weightsReleased) else { return }
                 self.postNotification(title: String(localized: "splash released the model"),
                                       body: String(localized: "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower."))
             }

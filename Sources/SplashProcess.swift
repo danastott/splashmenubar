@@ -58,6 +58,23 @@ enum SplashState: Equatable {
     }
 }
 
+/// A banner notification Splash Menu Bar can post; each is switchable in
+/// Settings (the Notifications tab).
+enum NotificationKind: String, Codable, CaseIterable {
+    case requestFinished
+    case requestStuck
+    case modelReady
+    case thermal
+    case weightsReleased
+    case crash
+
+    /// The kind's default: on, except "request finished" — a banner after
+    /// every slower chat turn should be opted into, while the others
+    /// announce something worth knowing (a download finished, the Mac is
+    /// throttling, the server died).
+    var defaultEnabled: Bool { self != .requestFinished }
+}
+
 /// Parameters for the `splash serve` command line.
 struct SplashConfig: Codable, Equatable {
     var model: String
@@ -102,14 +119,19 @@ struct SplashConfig: Codable, Equatable {
     /// App setting, not a splash flag: start the app (and with it the
     /// server) at login, registered via `SMAppService.mainApp`.
     var launchAtLogin: Bool = false
-    /// App setting, not a splash flag: post a notification when a request
-    /// that ran at least `RequestMetrics.notifyMinSeconds` seconds
-    /// finishes, with its output tokens and speed. Off by default, like the
-    /// other app-side options: long generations are the "it's done, come
-    /// back" case, but a banner after every slower chat turn should be
-    /// opted into. App-launched servers only (an adopted server has no log
-    /// to parse).
-    var notifyRequestFinish: Bool = false
+    /// App setting, not a splash flag: which of the app's banner
+    /// notifications post, keyed by `NotificationKind.rawValue` (Settings ›
+    /// Notifications). An absent entry means the kind's `defaultEnabled`:
+    /// everything on, "request finished" off. A plain [String: Bool] on
+    /// purpose: a [NotificationKind: Bool] would encode as a JSON array of
+    /// pairs, not an object.
+    var notifications: [String: Bool] = [:]
+
+    /// Whether the banner of `kind` posts: the stored choice, else the
+    /// kind's default.
+    func notificationsEnabled(_ kind: NotificationKind) -> Bool {
+        notifications[kind.rawValue] ?? kind.defaultEnabled
+    }
     /// App setting, not a splash flag: the flyout is pinned open (it comes
     /// back pinned across app restarts).
     var panelPinned: Bool = false
@@ -188,12 +210,12 @@ struct SplashConfig: Codable, Equatable {
          autoRestart: Bool = false,
          startServerOnLaunch: Bool = false,
          launchAtLogin: Bool = false,
-         notifyRequestFinish: Bool = false,
          panelPinned: Bool = false,
          pinnedPanelTopLeft: PanelTopLeft? = nil,
          theme: UITheme = .system,
          temperatureUnit: TemperatureUnit = .system,
-         gaugeColors: [String: String] = [:]) {
+         gaugeColors: [String: String] = [:],
+         notifications: [String: Bool] = [:]) {
         self.model = model
         self.port = port
         self.maxMemory = maxMemory
@@ -217,12 +239,12 @@ struct SplashConfig: Codable, Equatable {
         self.autoRestart = autoRestart
         self.startServerOnLaunch = startServerOnLaunch
         self.launchAtLogin = launchAtLogin
-        self.notifyRequestFinish = notifyRequestFinish
         self.panelPinned = panelPinned
         self.pinnedPanelTopLeft = pinnedPanelTopLeft
         self.theme = theme
         self.temperatureUnit = temperatureUnit
         self.gaugeColors = gaugeColors
+        self.notifications = notifications
     }
 
     /// Tolerates older/minimal config files: every field beyond model and
@@ -254,7 +276,7 @@ struct SplashConfig: Codable, Equatable {
         autoRestart = try c.decodeIfPresent(Bool.self, forKey: .autoRestart) ?? false
         startServerOnLaunch = try c.decodeIfPresent(Bool.self, forKey: .startServerOnLaunch) ?? false
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
-        notifyRequestFinish = try c.decodeIfPresent(Bool.self, forKey: .notifyRequestFinish) ?? false
+        notifications = try c.decodeIfPresent([String: Bool].self, forKey: .notifications) ?? [:]
         panelPinned = try c.decodeIfPresent(Bool.self, forKey: .panelPinned) ?? false
         pinnedPanelTopLeft = try c.decodeIfPresent(PanelTopLeft.self, forKey: .pinnedPanelTopLeft)
         theme = (try? c.decodeIfPresent(UITheme.self, forKey: .theme)) ?? .system

@@ -15,10 +15,38 @@ final class SplashConfigTests: XCTestCase {
         c.pinnedPanelTopLeft = SplashConfig.PanelTopLeft(x: 123.5, y: 640.0)
         // Toggle away from the default so a field missing from the encoded
         // JSON would be caught (the decoder's default would restore it).
-        c.notifyRequestFinish = true
+        c.notifications[NotificationKind.requestFinished.rawValue] = true
         let data = try JSONEncoder().encode(c)
         let d = try JSONDecoder().decode(SplashConfig.self, from: data)
         XCTAssertEqual(d, c)
+    }
+
+    /// A pre-1.0.15 file's single "request finished" toggle is ignored
+    /// (not migrated): the per-kind defaults apply, request-finished off,
+    /// so an upgrade doesn't keep a banner the user had turned on.
+    func testLegacyNotifyRequestFinishIgnored() throws {
+        let legacy = """
+        {
+          "model": "owner/repo:V",
+          "port": 9000,
+          "notifyRequestFinish": true
+        }
+        """
+        let c = try JSONDecoder().decode(SplashConfig.self, from: Data(legacy.utf8))
+        XCTAssertFalse(c.notificationsEnabled(.requestFinished))
+        for kind in NotificationKind.allCases where kind != .requestFinished {
+            XCTAssertTrue(c.notificationsEnabled(kind), "\(kind)")
+        }
+
+        // An explicit `notifications` map still wins.
+        let stored = """
+        {"model":"m","port":1,
+         "notifications":{"requestFinished":true,"crash":false}}
+        """
+        let c2 = try JSONDecoder().decode(SplashConfig.self, from: Data(stored.utf8))
+        XCTAssertTrue(c2.notificationsEnabled(.requestFinished))
+        XCTAssertFalse(c2.notificationsEnabled(.crash))
+        XCTAssertTrue(c2.notificationsEnabled(.modelReady))
     }
 
     /// A config file written before these fields existed must still load,
@@ -42,7 +70,12 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertFalse(c.pinModelVersion)
         XCTAssertFalse(c.panelPinned)
         XCTAssertNil(c.pinnedPanelTopLeft)
-        XCTAssertFalse(c.notifyRequestFinish)
+        // No `notifications` map: the kind defaults apply (request-finished
+        // off, the rest on).
+        XCTAssertFalse(c.notificationsEnabled(.requestFinished))
+        for kind in NotificationKind.allCases where kind != .requestFinished {
+            XCTAssertTrue(c.notificationsEnabled(kind), "\(kind)")
+        }
     }
 
     /// Appearance and gauge colors persist, and a file written before they
@@ -165,7 +198,7 @@ final class SplashConfigTests: XCTestCase {
         c.autoRestart = true
         c.launchAtLogin = true
         c.startServerOnLaunch = true
-        c.notifyRequestFinish = true
+        c.notifications[NotificationKind.requestFinished.rawValue] = true
         c.theme = .dark
         c.gaugeColors = ["tok": "#123456"]
         let m = SettingsModel(config: c)
@@ -192,7 +225,8 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertFalse(m.autoRestart)
         XCTAssertFalse(m.launchAtLogin)
         XCTAssertFalse(m.startServerOnLaunch)
-        XCTAssertFalse(m.notifyRequestFinish)
+        XCTAssertFalse(m.notifyRequestFinished)
+        XCTAssertTrue(m.notifyCrash)
         XCTAssertEqual(m.refreshInterval, d.refreshInterval)
         XCTAssertEqual(m.graphMinutes, d.graphMinutes)
         // The reset form is valid and maps to the defaults on Save.
@@ -200,7 +234,8 @@ final class SplashConfigTests: XCTestCase {
         XCTAssertEqual(m.asConfig.model, d.model)
         XCTAssertEqual(m.asConfig.port, d.port)
         XCTAssertNil(m.asConfig.maxMemory)
-        XCTAssertFalse(m.asConfig.notifyRequestFinish)
+        XCTAssertFalse(m.asConfig.notificationsEnabled(.requestFinished))
+        XCTAssertTrue(m.asConfig.notificationsEnabled(.crash))
         XCTAssertEqual(m.theme, d.theme)
         // A reset clears the gauge colors a following Save would carry.
         XCTAssertTrue(m.resetToDefaultsApplied)
