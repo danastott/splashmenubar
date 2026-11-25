@@ -58,6 +58,23 @@ enum SplashState: Equatable {
     }
 }
 
+/// A banner notification Splash Menu Bar can post; each is switchable in
+/// Settings (the Notifications tab).
+enum NotificationKind: String, Codable, CaseIterable {
+    case requestFinished
+    case requestStuck
+    case modelReady
+    case thermal
+    case weightsReleased
+    case crash
+
+    /// The kind's default: on, except "request finished" — a banner after
+    /// every slower chat turn should be opted into, while the others
+    /// announce something worth knowing (a download finished, the Mac is
+    /// throttling, the server died).
+    var defaultEnabled: Bool { self != .requestFinished }
+}
+
 /// Parameters for the `splash serve` command line.
 struct SplashConfig: Codable, Equatable {
     var model: String
@@ -102,14 +119,19 @@ struct SplashConfig: Codable, Equatable {
     /// App setting, not a splash flag: start the app (and with it the
     /// server) at login, registered via `SMAppService.mainApp`.
     var launchAtLogin: Bool = false
-    /// App setting, not a splash flag: post a notification when a request
-    /// that ran at least `RequestMetrics.notifyMinSeconds` seconds
-    /// finishes, with its output tokens and speed. Off by default, like the
-    /// other app-side options: long generations are the "it's done, come
-    /// back" case, but a banner after every slower chat turn should be
-    /// opted into. App-launched servers only (an adopted server has no log
-    /// to parse).
-    var notifyRequestFinish: Bool = false
+    /// App setting, not a splash flag: which of the app's banner
+    /// notifications post, keyed by `NotificationKind.rawValue` (Settings ›
+    /// Notifications). An absent entry means the kind's `defaultEnabled`:
+    /// everything on, "request finished" off. A plain [String: Bool] on
+    /// purpose: a [NotificationKind: Bool] would encode as a JSON array of
+    /// pairs, not an object.
+    var notifications: [String: Bool] = [:]
+
+    /// Whether the banner of `kind` posts: the stored choice, else the
+    /// kind's default.
+    func notificationsEnabled(_ kind: NotificationKind) -> Bool {
+        notifications[kind.rawValue] ?? kind.defaultEnabled
+    }
     /// App setting, not a splash flag: the flyout is pinned open (it comes
     /// back pinned across app restarts).
     var panelPinned: Bool = false
@@ -188,12 +210,12 @@ struct SplashConfig: Codable, Equatable {
          autoRestart: Bool = false,
          startServerOnLaunch: Bool = false,
          launchAtLogin: Bool = false,
-         notifyRequestFinish: Bool = false,
          panelPinned: Bool = false,
          pinnedPanelTopLeft: PanelTopLeft? = nil,
          theme: UITheme = .system,
          temperatureUnit: TemperatureUnit = .system,
-         gaugeColors: [String: String] = [:]) {
+         gaugeColors: [String: String] = [:],
+         notifications: [String: Bool] = [:]) {
         self.model = model
         self.port = port
         self.maxMemory = maxMemory
@@ -217,12 +239,12 @@ struct SplashConfig: Codable, Equatable {
         self.autoRestart = autoRestart
         self.startServerOnLaunch = startServerOnLaunch
         self.launchAtLogin = launchAtLogin
-        self.notifyRequestFinish = notifyRequestFinish
         self.panelPinned = panelPinned
         self.pinnedPanelTopLeft = pinnedPanelTopLeft
         self.theme = theme
         self.temperatureUnit = temperatureUnit
         self.gaugeColors = gaugeColors
+        self.notifications = notifications
     }
 
     /// Tolerates older/minimal config files: every field beyond model and
@@ -254,12 +276,69 @@ struct SplashConfig: Codable, Equatable {
         autoRestart = try c.decodeIfPresent(Bool.self, forKey: .autoRestart) ?? false
         startServerOnLaunch = try c.decodeIfPresent(Bool.self, forKey: .startServerOnLaunch) ?? false
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
-        notifyRequestFinish = try c.decodeIfPresent(Bool.self, forKey: .notifyRequestFinish) ?? false
+        // Pre-1.0.15 files carry one "request finished" toggle; map it onto
+        // the per-kind map (the other kinds keep their on-defaults).
+        let legacyRequestFinished =
+            try c.decodeIfPresent(Bool.self, forKey: .notifyRequestFinish) ?? false
+        if let stored = try c.decodeIfPresent(
+            [String: Bool].self, forKey: .notifications) {
+            notifications = stored
+        } else {
+            notifications = legacyRequestFinished
+                ? [NotificationKind.requestFinished.rawValue: true] : [:]
+        }
         panelPinned = try c.decodeIfPresent(Bool.self, forKey: .panelPinned) ?? false
         pinnedPanelTopLeft = try c.decodeIfPresent(PanelTopLeft.self, forKey: .pinnedPanelTopLeft)
         theme = (try? c.decodeIfPresent(UITheme.self, forKey: .theme)) ?? .system
         temperatureUnit = (try? c.decodeIfPresent(TemperatureUnit.self, forKey: .temperatureUnit)) ?? .system
         gaugeColors = try c.decodeIfPresent([String: String].self, forKey: .gaugeColors) ?? [:]
+    }
+
+    /// Explicit (not synthesized): `notifyRequestFinish` is read for
+    /// pre-1.0.15 files but no longer a stored property.
+    enum CodingKeys: String, CodingKey {
+        case model, port, maxMemory, idleRelease, maxContext, languageOnly
+        case kvFormat, stateFormat, disableANE, maxCacheDisk, persistentCache
+        case maxConcurrentRequests, samplingDefaults, activations, verifyRows
+        case cachedStates, recalibrateANE, pinModelVersion, refreshInterval
+        case graphMinutes, autoRestart, startServerOnLaunch, launchAtLogin
+        case panelPinned, pinnedPanelTopLeft, theme, temperatureUnit
+        case gaugeColors, notifications, notifyRequestFinish
+    }
+
+    /// Hand-written: with the explicit CodingKeys above, the synthesized
+    /// encoding no longer fits (the legacy key matches no stored property).
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(model, forKey: .model)
+        try c.encode(port, forKey: .port)
+        try c.encodeIfPresent(maxMemory, forKey: .maxMemory)
+        try c.encodeIfPresent(idleRelease, forKey: .idleRelease)
+        try c.encodeIfPresent(maxContext, forKey: .maxContext)
+        try c.encode(languageOnly, forKey: .languageOnly)
+        try c.encodeIfPresent(kvFormat, forKey: .kvFormat)
+        try c.encodeIfPresent(stateFormat, forKey: .stateFormat)
+        try c.encode(disableANE, forKey: .disableANE)
+        try c.encodeIfPresent(maxCacheDisk, forKey: .maxCacheDisk)
+        try c.encode(persistentCache, forKey: .persistentCache)
+        try c.encodeIfPresent(maxConcurrentRequests, forKey: .maxConcurrentRequests)
+        try c.encodeIfPresent(samplingDefaults, forKey: .samplingDefaults)
+        try c.encodeIfPresent(activations, forKey: .activations)
+        try c.encodeIfPresent(verifyRows, forKey: .verifyRows)
+        try c.encodeIfPresent(cachedStates, forKey: .cachedStates)
+        try c.encode(recalibrateANE, forKey: .recalibrateANE)
+        try c.encode(pinModelVersion, forKey: .pinModelVersion)
+        try c.encode(refreshInterval, forKey: .refreshInterval)
+        try c.encode(graphMinutes, forKey: .graphMinutes)
+        try c.encode(autoRestart, forKey: .autoRestart)
+        try c.encode(startServerOnLaunch, forKey: .startServerOnLaunch)
+        try c.encode(launchAtLogin, forKey: .launchAtLogin)
+        try c.encode(notifications, forKey: .notifications)
+        try c.encode(panelPinned, forKey: .panelPinned)
+        try c.encodeIfPresent(pinnedPanelTopLeft, forKey: .pinnedPanelTopLeft)
+        try c.encode(theme, forKey: .theme)
+        try c.encode(temperatureUnit, forKey: .temperatureUnit)
+        try c.encode(gaugeColors, forKey: .gaugeColors)
     }
 
     /// The user-picked color for a gauge, parsed from its stored hex; nil =

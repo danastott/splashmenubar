@@ -40,7 +40,13 @@ final class SettingsModel: ObservableObject {
     @Published var autoRestart: Bool
     @Published var startServerOnLaunch: Bool
     @Published var launchAtLogin: Bool
-    @Published var notifyRequestFinish: Bool
+    /// The Notifications tab: one toggle per banner the app can post.
+    @Published var notifyRequestFinished: Bool
+    @Published var notifyRequestStuck: Bool
+    @Published var notifyModelReady: Bool
+    @Published var notifyThermal: Bool
+    @Published var notifyWeightsReleased: Bool
+    @Published var notifyCrash: Bool
     @Published var theme: UITheme
     @Published var temperatureUnit: TemperatureUnit
     /// UI language choice ("" = system); persisted to app defaults, not to
@@ -155,7 +161,12 @@ final class SettingsModel: ObservableObject {
         autoRestart = config.autoRestart
         startServerOnLaunch = config.startServerOnLaunch
         launchAtLogin = config.launchAtLogin
-        notifyRequestFinish = config.notifyRequestFinish
+        notifyRequestFinished = config.notificationsEnabled(.requestFinished)
+        notifyRequestStuck = config.notificationsEnabled(.requestStuck)
+        notifyModelReady = config.notificationsEnabled(.modelReady)
+        notifyThermal = config.notificationsEnabled(.thermal)
+        notifyWeightsReleased = config.notificationsEnabled(.weightsReleased)
+        notifyCrash = config.notificationsEnabled(.crash)
         theme = config.theme
         temperatureUnit = config.temperatureUnit
         language = AppLanguage.selected()
@@ -206,7 +217,14 @@ final class SettingsModel: ObservableObject {
         c.autoRestart = autoRestart
         c.startServerOnLaunch = startServerOnLaunch
         c.launchAtLogin = launchAtLogin
-        c.notifyRequestFinish = notifyRequestFinish
+        c.notifications = [
+            NotificationKind.requestFinished.rawValue: notifyRequestFinished,
+            NotificationKind.requestStuck.rawValue: notifyRequestStuck,
+            NotificationKind.modelReady.rawValue: notifyModelReady,
+            NotificationKind.thermal.rawValue: notifyThermal,
+            NotificationKind.weightsReleased.rawValue: notifyWeightsReleased,
+            NotificationKind.crash.rawValue: notifyCrash,
+        ]
         c.theme = theme
         c.temperatureUnit = temperatureUnit
         // The flyout's pin state and position live with the app, not the
@@ -282,7 +300,12 @@ final class SettingsModel: ObservableObject {
         autoRestart = d.autoRestart
         startServerOnLaunch = d.startServerOnLaunch
         launchAtLogin = d.launchAtLogin
-        notifyRequestFinish = d.notifyRequestFinish
+        notifyRequestFinished = d.notificationsEnabled(.requestFinished)
+        notifyRequestStuck = d.notificationsEnabled(.requestStuck)
+        notifyModelReady = d.notificationsEnabled(.modelReady)
+        notifyThermal = d.notificationsEnabled(.thermal)
+        notifyWeightsReleased = d.notificationsEnabled(.weightsReleased)
+        notifyCrash = d.notificationsEnabled(.crash)
         theme = d.theme
         language = ""
         didResetToDefaults = true
@@ -321,6 +344,8 @@ struct SettingsView: View {
                     .tabItem { Label("AI harness", systemImage: "terminal") }
                 serverPane
                     .tabItem { Label("Server", systemImage: "server.rack") }
+                notificationsPane
+                    .tabItem { Label("Notifications", systemImage: "bell") }
                 appPane
                     .tabItem { Label("App", systemImage: "gearshape") }
                 aboutPane
@@ -545,6 +570,26 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    private var notificationsPane: some View {
+        Form {
+            Section {
+                Toggle("Request finished", isOn: $settings.notifyRequestFinished)
+                    .help("Post a notification when a request that ran at least \(Int(RequestMetrics.notifyMinSeconds)) seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Clicking the banner reopens the flyout. Changing it does not restart the server.")
+                Toggle("Request appears stuck", isOn: $settings.notifyRequestStuck)
+                    .help("Post a notification when a request makes no progress for a minute; the flyout also shows an orange stuck card. Changing it does not restart the server.")
+                Toggle("Model ready", isOn: $settings.notifyModelReady)
+                    .help("Post a notification when a downloaded model has loaded and is serving; loading a model that is already on disk stays silent. Changing it does not restart the server.")
+                Toggle("Thermal warnings", isOn: $settings.notifyThermal)
+                    .help("Post a notification when the Mac's thermal state crosses into serious or critical, when the CPU and GPU are being throttled and generation slows down. Changing it does not restart the server.")
+                Toggle("splash released the model", isOn: $settings.notifyWeightsReleased)
+                    .help("Post a notification when, after idleness, splash frees the model weights from memory to give the RAM back; the next request restores them and is slower. Changing it does not restart the server.")
+                Toggle("splash exited", isOn: $settings.notifyCrash)
+                    .help("Post a notification with a Start splash action when splash exits on its own. A crash that is being auto-restarted stays silent either way. Changing it does not restart the server.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
     private var appPane: some View {
         Form {
             Section {
@@ -575,8 +620,6 @@ struct SettingsView: View {
                     .help("Start the splash server with the model above whenever Splash Menu Bar launches. Off by default: the app opens with the server stopped (a splash already running on the port is still picked up), and you press Start. Changing it does not restart the server.")
                 Toggle("Launch at login", isOn: $settings.launchAtLogin)
                     .help("Start Splash Menu Bar when you log in — with Start 'splash' server on launch also on, the splash server comes up without opening the app. Registered as a system login item (System Settings → General → Login Items); changing it does not restart the server.")
-                Toggle("Notify when a request finishes", isOn: $settings.notifyRequestFinish)
-                    .help("Post a notification when a request that ran at least \(Int(RequestMetrics.notifyMinSeconds)) seconds finishes, with its output tokens and speed. Shorter requests stay silent. App-launched servers only — a server started outside the app has no log for the app to read. Changing it does not restart the server.")
                 Picker("Appearance", selection: $settings.theme) {
                     ForEach(UITheme.allCases, id: \.self) { t in
                         Text(t.label).tag(t)
