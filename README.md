@@ -90,11 +90,12 @@ refresh, auto-restart, launch options and appearance.
   on in Settings, starts it again automatically after a moment: up to 3
   consecutive crashes, then it gives up (pressing Start resets the count; a
   Stop always cancels a pending restart). Quitting the app asks first: while
-  its own server is running, a **Leave the splash server running** checkbox
-  (off by default, so the quit stops the server and its engine, waiting up to
-  3 s so nothing is left holding the model) leaves it running instead —
-  reparented to launchd, and the next start adopts it on the configured
-  port. An externally started server is left running either way.
+  its own server is running, the dialog offers **Quit, Stop Server** (the
+  default; stops the server and its engine, waiting up to 3 s so nothing is
+  left holding the model) or **Quit, Leave Server Running** — the server is
+  then left running, reparented to launchd, and the next start adopts it on
+  the configured port. An externally started server is left running either
+  way.
 - **Pin**: the pin icon in the flyout's header keeps the flyout open: clicking
   elsewhere, pressing Esc, clicking the menu bar item or using its buttons no
   longer closes it until you click the pin again to unpin it. While pinned you

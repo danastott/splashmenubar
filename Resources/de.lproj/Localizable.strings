@@ -153,7 +153,8 @@
 "Start" = "Starten";
 "Start splash serve with the current settings." = "splash serve mit den aktuellen Einstellungen starten.";
 "Quit" = "Beenden";
-"Leave the splash server running" = "Splash-Server weiterhin laufen lassen";
+"Quit, Stop Server" = "Beenden, Server stoppen";
+"Quit, Leave Server Running" = "Beenden, Server laufen lassen";
 "Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Splash Menu Bar beenden. Hat die App den Server gestartet, fragt ein Dialog, ob er gestoppt oder laufen gelassen wird; ein anderswo gestarteter Server läuft weiter.";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Splash Menu Bar beenden. Ein von der App gestarteter Server wird gestoppt; einer, der woanders gestartet wurde, läuft weiter.";
 "Input" = "Eingabe";
@@ -340,7 +341,7 @@
 "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower." = "Nach Leerlauf hat splash die Modellgewichte aus dem Speicher freigegeben, um RAM zurückzugeben. Die nächste Anfrage stellt sie wieder her und wird langsamer sein.";
 "%@ — the server is stopped." = "%@ — der Server ist gestoppt.";
 "Quit Splash Menu Bar?" = "Splash Menu Bar beenden?";
-"The splash server this app started will be stopped." = "Der von dieser App gestartete splash-Server wird gestoppt.";
+"The splash server this app started is still running." = "Der von dieser App gestartete splash-Server läuft noch.";
 "A splash server started outside the app keeps running." = "Ein außerhalb der App gestarteter splash-Server läuft weiter.";
 "splash is not installed" = "splash ist nicht installiert";
 "Splash Menu Bar needs the `splash` command-line tool to run the server.\n\nInstall it yourself with:\n    %@\n\nor let Splash Menu Bar run that command for you now." = "Splash Menu Bar benötigt das `splash`-Kommandozeilenwerkzeug, um den Server auszuführen.\n\nInstallieren Sie es selbst mit:\n    %@\n\noder lassen Sie Splash Menu Bar den Befehl jetzt für Sie ausführen.";

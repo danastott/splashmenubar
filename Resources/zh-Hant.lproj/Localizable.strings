@@ -153,7 +153,8 @@
 "Start" = "啟動";
 "Start splash serve with the current settings." = "用當前設定啟動 splash serve。";
 "Quit" = "退出";
-"Leave the splash server running" = "讓 splash 伺服器繼續運行";
+"Quit, Stop Server" = "結束,停止伺服器";
+"Quit, Leave Server Running" = "結束,讓伺服器繼續運行";
 "Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "結束 Splash Menu Bar。如果應用啟動了伺服器,對話框會詢問是停止它還是讓它繼續運行;在別處啟動的伺服器保持運行。";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "退出 Splash Menu Bar。應用啟動的伺服器會被停止；在別處啟動的伺服器繼續運行。";
 "Input" = "輸入";
@@ -340,7 +341,7 @@
 "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower." = "空閒之後，splash 已將模型權重從記憶體中釋放，以歸還 RAM。下一個請求會將其恢復，速度會變慢。";
 "%@ — the server is stopped." = "%@ — 伺服器已停止。";
 "Quit Splash Menu Bar?" = "要退出 Splash Menu Bar 嗎？";
-"The splash server this app started will be stopped." = "本應用啟動的 splash 伺服器將被停止。";
+"The splash server this app started is still running." = "本應用啟動的 splash 伺服器仍在運行。";
 "A splash server started outside the app keeps running." = "在應用外啟動的 splash 伺服器會繼續運行。";
 "splash is not installed" = "splash 未安裝";
 "Splash Menu Bar needs the `splash` command-line tool to run the server.\n\nInstall it yourself with:\n    %@\n\nor let Splash Menu Bar run that command for you now." = "Splash Menu Bar 需要 `splash` 命令列工具來運行伺服器。\n\n請自行安裝：\n    %@\n\n或讓 Splash Menu Bar 現在替你運行該命令。";

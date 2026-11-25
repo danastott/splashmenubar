@@ -152,7 +152,8 @@
 "Start" = "開始";
 "Start splash serve with the current settings." = "現在の設定で splash serve を起動します。";
 "Quit" = "終了";
-"Leave the splash server running" = "splash サーバーを起動したままにする";
+"Quit, Stop Server" = "終了してサーバーを停止";
+"Quit, Leave Server Running" = "終了してサーバーを起動したままに";
 "Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Splash Menu Bar を終了します。アプリがサーバーを起動した場合は、停止するか起動を続けるかを尋ねるダイアログが表示されます。ほかで起動したサーバーは動き続けます。";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Splash Menu Bar を終了します。アプリが起動したサーバーは停止され、他で起動したものは動き続けます。";
 "Input" = "入力";
@@ -339,7 +340,7 @@
 "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower." = "アイドルの後、splash は RAM を返すためにモデルウェイトをメモリから解放しました。次のリクエストはウェイトを復元するため、速度が遅くなります。";
 "%@ — the server is stopped." = "%@ — サーバーは停止中です。";
 "Quit Splash Menu Bar?" = "Splash Menu Bar を終了しますか?";
-"The splash server this app started will be stopped." = "このアプリが起動した splash サーバーは停止されます。";
+"The splash server this app started is still running." = "このアプリが起動した splash サーバーがまだ動いています。";
 "A splash server started outside the app keeps running." = "アプリ外で起動された splash サーバーは実行を続けます。";
 "splash is not installed" = "splash がインストールされていません";
 "Splash Menu Bar needs the `splash` command-line tool to run the server.\n\nInstall it yourself with:\n    %@\n\nor let Splash Menu Bar run that command for you now." = "Splash Menu Bar は、サーバーの実行に `splash` コマンドラインツールが必要です。\n\n自分でインストールするには:\n    %@\n\nまたは、Splash Menu Bar に今すぐこのコマンドを実行させます。";

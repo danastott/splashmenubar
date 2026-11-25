@@ -153,7 +153,8 @@
 "Start" = "Başlat";
 "Start splash serve with the current settings." = "splash serve'i mevcut ayarlarla başlat.";
 "Quit" = "Çık";
-"Leave the splash server running" = "splash sunucusunu çalışır durumda bırak";
+"Quit, Stop Server" = "Çık, sunucuyu durdur";
+"Quit, Leave Server Running" = "Çık, sunucuyu çalışır bırak";
 "Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Splash Menu Bar'dan çık. Uygulama sunucuyu başlattıysa, durdurulup durdurulmayacağına dair bir iletişim kutusu gösterilir; başka bir yerde başlatılmış bir sunucu çalışmaya devam eder.";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Splash Menu Bar'dan çık. Uygulamanın başlattığı sunucu durdurulur; başka yerde başlatılan çalışmaya devam eder.";
 "Input" = "Girdi";
@@ -340,7 +341,7 @@
 "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower." = "Boşlukta kaldıktan sonra splash, RAM'i geri vermek için model ağırlıklarını bellekten serbest bıraktı. Sonraki istek onları geri yükleyecek ve daha yavaş olacak.";
 "%@ — the server is stopped." = "%@ — sunucu durduruldu.";
 "Quit Splash Menu Bar?" = "Splash Menu Bar'dan çıkılsın mı?";
-"The splash server this app started will be stopped." = "Bu uygulamanın başlattığı splash sunucusu durdurulacak.";
+"The splash server this app started is still running." = "Bu uygulamanın başlattığı splash sunucusu hâlâ çalışıyor.";
 "A splash server started outside the app keeps running." = "Uygulama dışında başlatılan bir splash sunucusu çalışmaya devam eder.";
 "splash is not installed" = "splash kurulu değil";
 "Splash Menu Bar needs the `splash` command-line tool to run the server.\n\nInstall it yourself with:\n    %@\n\nor let Splash Menu Bar run that command for you now." = "Splash Menu Bar'ın sunucuyu çalıştırması için `splash` komut satırı aracına ihtiyacı var.\n\nKendin şununla kur:\n    %@\n\nveya şimdi Splash Menu Bar'ın bu komutu senin için çalıştırmasına izin ver.";
