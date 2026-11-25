@@ -1150,7 +1150,7 @@ struct MetricsView: View {
             }
             .accessibilityLabel("Quit")
             .buttonStyle(.bordered)
-            .help("Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running.")
+            .help("Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running.")
         }
         .controlSize(.small)
     }

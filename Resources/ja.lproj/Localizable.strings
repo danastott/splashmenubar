@@ -152,6 +152,8 @@
 "Start" = "開始";
 "Start splash serve with the current settings." = "現在の設定で splash serve を起動します。";
 "Quit" = "終了";
+"Leave the splash server running" = "splash サーバーを起動したままにする";
+"Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Splash Menu Bar を終了します。アプリがサーバーを起動した場合は、停止するか起動を続けるかを尋ねるダイアログが表示されます。ほかで起動したサーバーは動き続けます。";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Splash Menu Bar を終了します。アプリが起動したサーバーは停止され、他で起動したものは動き続けます。";
 "Input" = "入力";
 "Input types this server accepts in prompts." = "このサーバーのプロンプトが受け入れる入力タイプ。";
