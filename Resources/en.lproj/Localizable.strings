@@ -153,7 +153,8 @@
 "Start" = "Start";
 "Start splash serve with the current settings." = "Start splash serve with the current settings.";
 "Quit" = "Quit";
-"Leave the splash server running" = "Leave the splash server running";
+"Quit, Stop Server" = "Quit, Stop Server";
+"Quit, Leave Server Running" = "Quit, Leave Server Running";
 "Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running.";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running.";
 "Input" = "Input";
@@ -340,7 +341,7 @@
 "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower." = "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower.";
 "%@ — the server is stopped." = "%@ — the server is stopped.";
 "Quit Splash Menu Bar?" = "Quit Splash Menu Bar?";
-"The splash server this app started will be stopped." = "The splash server this app started will be stopped.";
+"The splash server this app started is still running." = "The splash server this app started is still running.";
 "A splash server started outside the app keeps running." = "A splash server started outside the app keeps running.";
 "splash is not installed" = "splash is not installed";
 "Splash Menu Bar needs the `splash` command-line tool to run the server.\n\nInstall it yourself with:\n    %@\n\nor let Splash Menu Bar run that command for you now." = "Splash Menu Bar needs the `splash` command-line tool to run the server.\n\nInstall it yourself with:\n    %@\n\nor let Splash Menu Bar run that command for you now.";

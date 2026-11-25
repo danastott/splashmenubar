@@ -153,7 +153,8 @@
 "Start" = "Démarrer";
 "Start splash serve with the current settings." = "Démarrer splash serve avec les réglages actuels.";
 "Quit" = "Quitter";
-"Leave the splash server running" = "Laisser le serveur splash en cours d'exécution";
+"Quit, Stop Server" = "Quitter, arrêter le serveur";
+"Quit, Leave Server Running" = "Quitter, laisser le serveur en cours d'exécution";
 "Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Quitter Splash Menu Bar. Si l'app a démarré le serveur, un dialogue demande s'il est arrêté ou laissé en cours d'exécution ; un serveur démarré ailleurs continue de tourner.";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Quitter Splash Menu Bar. Un serveur démarré par l'app est arrêté ; un serveur démarré ailleurs continue de tourner.";
 "Input" = "Entrée";
@@ -340,7 +341,7 @@
 "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower." = "Après inactivité, splash a libéré les poids du modèle de la mémoire pour rendre la RAM. La requête suivante les restaure et sera plus lente.";
 "%@ — the server is stopped." = "%@ — le serveur est arrêté.";
 "Quit Splash Menu Bar?" = "Quitter Splash Menu Bar ?";
-"The splash server this app started will be stopped." = "Le serveur splash démarré par cette app sera arrêté.";
+"The splash server this app started is still running." = "Le serveur splash démarré par cette app est toujours en cours d'exécution.";
 "A splash server started outside the app keeps running." = "Un serveur splash démarré en dehors de l'app continue de tourner.";
 "splash is not installed" = "splash n'est pas installé";
 "Splash Menu Bar needs the `splash` command-line tool to run the server.\n\nInstall it yourself with:\n    %@\n\nor let Splash Menu Bar run that command for you now." = "Splash Menu Bar a besoin de l'outil en ligne de commande `splash` pour faire tourner le serveur.\n\nInstallez-le vous-même avec :\n    %@\n\nou laissez Splash Menu Bar exécuter cette commande pour vous maintenant.";

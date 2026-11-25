@@ -43,6 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // write the defaults back over the file.
         let loaded = SplashConfig.load()
         config = loaded.config
+        // Keep the process layer's copy in sync from the start: with a
+        // loaded (non-default) port, Stop/Restart of an adopted — never
+        // started by this app — server would otherwise target the default.
+        proc.updateConfig(loaded.config)
         configLoadWarning = loaded.warning
     }
 
@@ -111,10 +115,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let discoveryInterval: TimeInterval = 5
     private let thermalSensor = ThermalSensor()
     private let systemMonitor = SystemMonitor()
-    /// Set when the quit dialog's "leave the splash server running"
-    /// checkbox was on: the app's own server then survives the quit
-    /// (reparented to launchd; the next start adopts it on the configured
-    /// port).
+    /// Set when the quit dialog chose to leave the app's own server
+    /// running: it then survives the quit (reparented to launchd; the next
+    /// start adopts it on the configured port).
     private var leaveServerRunningOnQuit = false
     /// Set before a programmatic terminate (the relaunch after an update or
     /// a language change) so the quit dialog is skipped.
@@ -342,10 +345,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Every quit — the flyout's ⏻, ⌘Q from a focused window — asks here.
-    /// While the app owns a running server, a checkbox (off by default, so
-    /// the quit stops the server as before) can leave it running; a forced
-    /// terminate (the relaunch after an update or a language change) skips
-    /// the dialog.
+    /// While the app owns a running server, the dialog offers stopping it
+    /// (the default) or leaving it running; a forced terminate (the relaunch
+    /// after an update or a language change) skips the dialog.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !forceTerminate else { return .terminateNow }
         if proc.ownsRunningChild {
@@ -368,24 +370,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case quit(stopServer: Bool)
     }
 
-    /// The quit confirmation while the app's own server is running. The
-    /// checkbox is off by default, i.e. the quit stops the server; on, the
-    /// server is left running — reparented to launchd, and the next start
-    /// adopts it on the configured port.
+    /// The quit confirmation while the app's own server is running: stop it
+    /// (the default) or leave it running (reparented to launchd; the next
+    /// start adopts it on the configured port). Three buttons rather than a
+    /// checkbox: on current macOS, NSAlert injects its own "Do not show
+    /// this message again" checkbox into the accessory area, which swallows
+    /// a user-supplied accessory checkbox.
     private func confirmQuitWithRunningServer() -> QuitWithServerChoice {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "Quit Splash Menu Bar?")
-        alert.informativeText = String(localized: "The splash server this app started will be stopped.")
-        alert.addButton(withTitle: String(localized: "Quit"))
+        alert.informativeText = String(localized: "The splash server this app started is still running.")
+        alert.addButton(withTitle: String(localized: "Quit, Stop Server"))
+        alert.addButton(withTitle: String(localized: "Quit, Leave Server Running"))
         alert.addButton(withTitle: String(localized: "Cancel"))
-        let leave = NSButton(
-            checkboxWithTitle: String(localized: "Leave the splash server running"),
-            target: nil, action: nil)
-        alert.accessoryView = leave
         NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return .cancel }
-        return .quit(stopServer: leave.state != .on)
+        switch alert.runModal() {
+        case .alertSecondButtonReturn: return .quit(stopServer: false)
+        case .alertThirdButtonReturn: return .cancel
+        default: return .quit(stopServer: true)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

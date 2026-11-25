@@ -153,7 +153,8 @@
 "Start" = "Avvia";
 "Start splash serve with the current settings." = "Avvia splash serve con le impostazioni attuali.";
 "Quit" = "Esci";
-"Leave the splash server running" = "Lascia il server splash in esecuzione";
+"Quit, Stop Server" = "Esci, ferma il server";
+"Quit, Leave Server Running" = "Esci, lascia il server in esecuzione";
 "Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Esci da Splash Menu Bar. Se l'app ha avviato il server, un dialogo chiede se fermarlo o lasciarlo in esecuzione; un server avviato altrove continua a girare.";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Esci da Splash Menu Bar. Un server avviato dall'app viene arrestato; uno avviato altrove continua a girare.";
 "Input" = "Input";
@@ -340,7 +341,7 @@
 "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower." = "Dopo inattività, splash ha liberato i pesi del modello dalla memoria per rendere la RAM. La richiesta successiva li ripristinerà e sarà più lenta.";
 "%@ — the server is stopped." = "%@ — il server è arrestato.";
 "Quit Splash Menu Bar?" = "Esci da Splash Menu Bar?";
-"The splash server this app started will be stopped." = "Il server splash avviato da questa app verrà arrestato.";
+"The splash server this app started is still running." = "Il server splash avviato da questa app è ancora in esecuzione.";
 "A splash server started outside the app keeps running." = "Un server splash avviato al di fuori dell'app continua a girare.";
 "splash is not installed" = "splash non è installato";
 "Splash Menu Bar needs the `splash` command-line tool to run the server.\n\nInstall it yourself with:\n    %@\n\nor let Splash Menu Bar run that command for you now." = "Splash Menu Bar ha bisogno dello strumento da riga di comando `splash` per eseguire il server.\n\nInstallalo tu con:\n    %@\n\noppure lascia che Splash Menu Bar esegua questo comando per te adesso.";

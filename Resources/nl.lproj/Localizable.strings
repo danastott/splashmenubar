@@ -153,7 +153,8 @@
 "Start" = "Starten";
 "Start splash serve with the current settings." = "Start splash serve met de huidige instellingen.";
 "Quit" = "Sluiten";
-"Leave the splash server running" = "Splash-server blijven draaien";
+"Quit, Stop Server" = "Afsluiten, server stoppen";
+"Quit, Leave Server Running" = "Afsluiten, server laten draaien";
 "Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Splash Menu Bar afsluiten. Als de app de server is gestart, vraagt een dialoogvenster of deze wordt gestopt of blijft draaien; een elders gestarte server blijft draaien.";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Sluit Splash Menu Bar. Een server die de app startte wordt gestopt; een die elders is gestart blijft draaien.";
 "Input" = "Input";
@@ -340,7 +341,7 @@
 "After idleness, splash freed the model weights from memory to give the RAM back. The next request restores them and will be slower." = "Na inactiviteit gaf splash de modelgewichten uit het geheugen vrij om de RAM terug te geven. Het volgende verzoek herstelt ze en zal trager zijn.";
 "%@ — the server is stopped." = "%@ — de server is gestopt.";
 "Quit Splash Menu Bar?" = "Splash Menu Bar sluiten?";
-"The splash server this app started will be stopped." = "De splash-server die deze app startte wordt gestopt.";
+"The splash server this app started is still running." = "De splash-server die deze app startte draait nog.";
 "A splash server started outside the app keeps running." = "Een buiten de app gestarte splash-server blijft draaien.";
 "splash is not installed" = "splash is niet geïnstalleerd";
 "Splash Menu Bar needs the `splash` command-line tool to run the server.\n\nInstall it yourself with:\n    %@\n\nor let Splash Menu Bar run that command for you now." = "Splash Menu Bar heeft de `splash`-commandline-tool nodig om de server te draaien.\n\nInstalleer hem zelf met:\n    %@\n\nof laat Splash Menu Bar dat commando nu voor je uitvoeren.";
