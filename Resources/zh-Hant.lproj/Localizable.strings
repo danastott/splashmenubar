@@ -153,6 +153,8 @@
 "Start" = "啟動";
 "Start splash serve with the current settings." = "用當前設定啟動 splash serve。";
 "Quit" = "退出";
+"Leave the splash server running" = "讓 splash 伺服器繼續運行";
+"Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "結束 Splash Menu Bar。如果應用啟動了伺服器,對話框會詢問是停止它還是讓它繼續運行;在別處啟動的伺服器保持運行。";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "退出 Splash Menu Bar。應用啟動的伺服器會被停止；在別處啟動的伺服器繼續運行。";
 "Input" = "輸入";
 "Input types this server accepts in prompts." = "該伺服器在提示詞中接受的輸入類型。";

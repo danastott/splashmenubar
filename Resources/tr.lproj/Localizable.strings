@@ -153,6 +153,8 @@
 "Start" = "Başlat";
 "Start splash serve with the current settings." = "splash serve'i mevcut ayarlarla başlat.";
 "Quit" = "Çık";
+"Leave the splash server running" = "splash sunucusunu çalışır durumda bırak";
+"Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Splash Menu Bar'dan çık. Uygulama sunucuyu başlattıysa, durdurulup durdurulmayacağına dair bir iletişim kutusu gösterilir; başka bir yerde başlatılmış bir sunucu çalışmaya devam eder.";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Splash Menu Bar'dan çık. Uygulamanın başlattığı sunucu durdurulur; başka yerde başlatılan çalışmaya devam eder.";
 "Input" = "Girdi";
 "Input types this server accepts in prompts." = "Bu sunucunun prompt'larda kabul ettiği girdi türleri.";

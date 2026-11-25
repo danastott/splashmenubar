@@ -152,6 +152,8 @@
 "Start" = "시작";
 "Start splash serve with the current settings." = "현재 설정으로 splash serve를 시작합니다.";
 "Quit" = "종료";
+"Leave the splash server running" = "splash 서버 실행 유지";
+"Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Splash Menu Bar를 종료합니다. 앱이 서버를 시작한 경우 정지할지 실행을 유지할지 묻는 대화상자가 표시됩니다. 다른 곳에서 시작한 서버는 계속 실행됩니다.";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Splash Menu Bar를 종료합니다. 앱이 시작한 서버는 중지되고, 다른 곳에서 시작한 서버는 계속 실행됩니다.";
 "Input" = "입력";
 "Input types this server accepts in prompts." = "이 서버의 프롬프트가 받아들이는 입력 유형.";

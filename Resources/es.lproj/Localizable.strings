@@ -152,6 +152,8 @@
 "Start" = "Iniciar";
 "Start splash serve with the current settings." = "Inicia splash serve con los ajustes actuales.";
 "Quit" = "Salir";
+"Leave the splash server running" = "Dejar el servidor de splash en ejecución";
+"Quit Splash Menu Bar. When the app started the server, a dialog asks whether to stop it or leave it running; a server started elsewhere keeps running." = "Salir de Splash Menu Bar. Si la app inició el servidor, un cuadro de diálogo pregunta si se detiene o se deja en ejecución; uno iniciado en otro sitio sigue corriendo.";
 "Quit Splash Menu Bar. A server the app started is stopped; one started elsewhere keeps running." = "Sale de Splash Menu Bar. Un servidor iniciado por la aplicación se detiene; uno iniciado en otro sitio sigue en ejecución.";
 "Input" = "Entrada";
 "Input types this server accepts in prompts." = "Tipos de entrada que este servidor acepta en los prompts.";

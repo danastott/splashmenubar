@@ -111,6 +111,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let discoveryInterval: TimeInterval = 5
     private let thermalSensor = ThermalSensor()
     private let systemMonitor = SystemMonitor()
+    /// Set when the quit dialog's "leave the splash server running"
+    /// checkbox was on: the app's own server then survives the quit
+    /// (reparented to launchd; the next start adopts it on the configured
+    /// port).
+    private var leaveServerRunningOnQuit = false
+    /// Set before a programmatic terminate (the relaunch after an update or
+    /// a language change) so the quit dialog is skipped.
+    private var forceTerminate = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // No settings file yet: this is the app's first launch.
@@ -333,11 +341,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Every quit — the flyout's ⏻, ⌘Q from a focused window — asks here.
+    /// While the app owns a running server, a checkbox (off by default, so
+    /// the quit stops the server as before) can leave it running; a forced
+    /// terminate (the relaunch after an update or a language change) skips
+    /// the dialog.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !forceTerminate else { return .terminateNow }
+        if proc.ownsRunningChild {
+            switch confirmQuitWithRunningServer() {
+            case .cancel:
+                return .terminateCancel
+            case .quit(let stopServer):
+                leaveServerRunningOnQuit = !stopServer
+                return .terminateNow
+            }
+        }
+        let info = String(localized: "A splash server started outside the app keeps running.")
+        return confirm(String(localized: "Quit Splash Menu Bar?"), info: info,
+                       button: String(localized: "Quit"))
+            ? .terminateNow : .terminateCancel
+    }
+
+    private enum QuitWithServerChoice {
+        case cancel
+        case quit(stopServer: Bool)
+    }
+
+    /// The quit confirmation while the app's own server is running. The
+    /// checkbox is off by default, i.e. the quit stops the server; on, the
+    /// server is left running — reparented to launchd, and the next start
+    /// adopts it on the configured port.
+    private func confirmQuitWithRunningServer() -> QuitWithServerChoice {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Quit Splash Menu Bar?")
+        alert.informativeText = String(localized: "The splash server this app started will be stopped.")
+        alert.addButton(withTitle: String(localized: "Quit"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        let leave = NSButton(
+            checkboxWithTitle: String(localized: "Leave the splash server running"),
+            target: nil, action: nil)
+        alert.accessoryView = leave
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return .cancel }
+        return .quit(stopServer: leave.state != .on)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         persistPanelState()
         // Quitting the app stops our child and its engine (waiting briefly so
-        // nothing is orphaned) but leaves an externally started server alone.
-        proc.stopChildBeforeQuit()
+        // nothing is orphaned) but leaves an externally started server alone
+        // — unless the quit dialog's checkbox left the app's own server
+        // running.
+        if !leaveServerRunningOnQuit {
+            proc.stopChildBeforeQuit()
+        }
     }
 
     /// Sets the status item text; a "●" is drawn yellow while starting and
@@ -852,12 +911,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         case .quit:
+            // The dialog lives in applicationShouldTerminate, so this and
+            // ⌘Q get the same confirmation.
             dismissPanel()
-            let info: String = proc.ownsRunningChild
-                ? String(localized: "The splash server this app started will be stopped.")
-                : String(localized: "A splash server started outside the app keeps running.")
-            guard confirm(String(localized: "Quit Splash Menu Bar?"), info: info,
-                          button: String(localized: "Quit")) else { return }
             NSApp.terminate(nil)
         }
     }
@@ -1216,8 +1272,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let url = Bundle.main.bundleURL
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { [weak self] _, error in
             DispatchQueue.main.async {
+                guard let self else { return }
                 if let error {
                     let alert = NSAlert()
                     alert.messageText = String(localized: "Couldn't relaunch Splash Menu Bar")
@@ -1225,6 +1282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     alert.runModal()
                     return
                 }
+                // No quit dialog, and the server survives: the new instance
+                // picks it up on the configured port.
+                self.forceTerminate = true
+                self.leaveServerRunningOnQuit = true
                 NSApp.terminate(nil)
             }
         }
