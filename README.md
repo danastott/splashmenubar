@@ -289,11 +289,11 @@ edits the full `splash serve` command line, persisted to
 | Persistent cache | `--persistent-cache` | keep the SSD cache across restarts |
 | Concurrency limit | `--max-concurrent-requests` | `1`–`8` (`4` (default) omits the flag) |
 | Sampling defaults | `--sampling-default` | `NAME=VALUE` pairs for requests that set none, e.g. `temperature=0.7 top_p=0.9` (blank = the model's published sampling) |
-| Activations | `--activations` | `auto` (default, omits the flag) or `bf16` |
+| Activations | `--activations` | `auto` (default, omits the flag) or `bf16`; on M5 and later, splash 1.7.2+ runs GGUF Q8_0 projections' prefill on int8 by default, and `bf16` keeps the old behavior |
 | Verify rows | `--verify-rows` | `auto` (default, omits the flag) or `all` |
 | Cached states | `--cached-states` | `int8` (default, omits the flag) or `exact` |
 | Recalibrate Neural Engine | `--recalibrate-ane` | off by default (which omits the flag); recalibrates the Neural Engine's share of long prompts at every start; unavailable while the Neural Engine is disabled |
-| Pin model version | `--revision` | off by default, when splash follows the repository's default branch; on, splash starts with `--revision` set to the commit of the model's newest complete snapshot in the Hugging Face cache, so a new commit upstream is not re-downloaded over the copy on disk. With no complete copy cached there is no version to pin, so the first start downloads as usual |
+| Pin model version | `--revision` | off by default, when splash follows the repository's default branch; on, splash starts with `--revision` set to the commit of the model's newest complete snapshot in the Hugging Face cache, so a new commit upstream is not re-downloaded over the copy on disk. With no complete copy cached there is no version to pin, so the first start downloads as usual. With splash 1.7.3, a text-only Inkling-2-Mini install takes its vision tower in at the next online start; a `--revision`-pinned start asks the Hub for the commit's listing until it has it |
 
 Blank optional fields and default pickers omit the flag entirely.
 
@@ -305,8 +305,10 @@ Other GGUF variants of the supported repos found there are listed too.
 total size and version count, and per repository each version — the commit
 ("current" when it is the repository's default branch), when it was fetched,
 its size, and the complete variants it holds — plus a download field (a new
-`OWNER/REPO` and an optional revision, run with splash's bundled Python, its
-output streamed into the window) and remove actions: one version (the blobs
+`OWNER/REPO` and an optional revision — or an `OWNER/REPO:VARIANT`, which
+fetches just that GGUF variant plus the vision projectors instead of the
+whole repo — run with splash's bundled Python, its output streamed into the
+window) and remove actions: one version (the blobs
 only it references are deleted, and the repository's `main` ref re-points at
 the newest remaining snapshot — or is removed with the last version) or the
 whole repository.

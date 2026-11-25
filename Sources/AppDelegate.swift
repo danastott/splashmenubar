@@ -417,7 +417,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // clamped into the screen — never off the top or the sides.
         var origin = anchoredOrigin(for: size, anchor: anchor, anchorWindow: anchorWindow)
         if let topLeft = keepingTopLeft {
-            origin = NSPoint(x: topLeft.x, y: topLeft.y - size.height)
+            // A pinned panel keeps its saved corner, clamped into the visible
+            // frame — a monitor may have gone away or changed size since.
+            let minX = visible.minX + 6
+            let maxX = visible.maxX - size.width - 6
+            let x = min(max(topLeft.x, minX), max(minX, maxX))
+            var y = topLeft.y - size.height
+            y = min(y, visible.maxY - size.height)
+            y = max(y, visible.minY + 6)
+            origin = NSPoint(x: x, y: y)
         }
         let x = origin.x, y = origin.y
 
@@ -450,28 +458,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Grow or shrink the open flyout to its content, keeping its top edge
-    /// under the menu bar.
+    /// under the menu bar. Switches both ways between the plain and scrolling
+    /// layouts — a flyout that shrinks back under the cap must not stay
+    /// stuck in the scrolling layout.
     private func resizePanelToFit() {
-        guard panelVisible, let p = panel, let hosting = panelHosting else { return }
+        guard panelVisible, let p = panel else { return }
         let maxH = ((p.screen ?? NSScreen.main)?.visibleFrame.height ?? 640) - 8
-        if panelScrolls {
-            // Already capped at the screen height; nothing to do.
+        let handler: (MenuAction) -> Void = { [weak self] in self?.handleAction($0) }
+        let colorPanelHandler: (String) -> Void = { [weak self] id in
+            self?.openGaugeColorPanel(id: id)
+        }
+        let plain = NSHostingView(rootView: MetricsView(
+            store: store, config: config, settings: settingsModel,
+            onAction: handler, onOpenGaugeColorPanel: colorPanelHandler))
+        let plainSize = plain.fittingSize
+        let shouldScroll = plainSize.height > maxH
+        if panelScrolls == shouldScroll {
+            if !panelScrolls && abs(plainSize.height - p.frame.height) > 0.5 {
+                var frame = p.frame
+                frame.origin.y = frame.maxY - plainSize.height
+                frame.size.height = plainSize.height
+                p.setFrame(frame, display: true)
+            }
             return
         }
-        let size = hosting.fittingSize
-        guard abs(size.height - p.frame.height) > 0.5 else { return }
-        if size.height > maxH {
-            // Now too tall to fit: rebuild with the scrolling layout.
-            guard let button = statusItem.button, let win = button.window else { return }
-            let topLeft = store.panelPinned ? NSPoint(x: p.frame.minX, y: p.frame.maxY) : nil
-            closePanel()
-            showPanel(anchor: button, anchorWindow: win, keepingTopLeft: topLeft)
-            return
-        }
-        var frame = p.frame
-        frame.origin.y = frame.maxY - size.height
-        frame.size.height = size.height
-        p.setFrame(frame, display: true)
+        // The layout mode changed: rebuild the panel in the new mode. A
+        // pinned panel keeps its corner (clamped into the screen).
+        guard let button = statusItem.button, let win = button.window else { return }
+        let topLeft = store.panelPinned ? NSPoint(x: p.frame.minX, y: p.frame.maxY) : nil
+        closePanel()
+        showPanel(anchor: button, anchorWindow: win, keepingTopLeft: topLeft)
     }
 
     /// Closes the flyout for a user gesture (click outside, Esc, status item,

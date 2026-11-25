@@ -236,28 +236,50 @@ enum ModelCache {
         return freed
     }
 
-    /// The download command for `repo` (a full Hugging Face repo;
-    /// `revision` nil = its default branch), run with splash's bundled
-    /// Python and huggingface_hub. nil when splash (and with it the
-    /// interpreter) isn't installed. `display` is the human line the UI
-    /// shows.
+    /// The download command for `repo` — a plain `OWNER/REPO` downloads the
+    /// whole repo; `OWNER/REPO:VARIANT` fetches only that GGUF variant's
+    /// files plus the vision projectors — with `revision` (nil = the repo's
+    /// default branch), run with splash's bundled Python and huggingface_hub.
+    /// nil when splash (and with it the interpreter) isn't installed.
+    /// `display` is the human line the UI shows.
     static func downloadCommand(repo: String, revision: String?)
         -> (python: String, arguments: [String], display: String)? {
         guard let python = SplashInstaller.pythonPath() else { return nil }
+        // huggingface_hub rejects an id with a ":VARIANT" suffix
+        // (HFValidationError); the variant only scopes the patterns.
+        let (id, variant) = SplashModels.parse(repo)
         let script = """
             import sys
             from huggingface_hub import snapshot_download
             repo = sys.argv[1]
             revision = sys.argv[2] if len(sys.argv) > 2 else None
-            snapshot_download(repo, revision=revision)
+            patterns = sys.argv[3].split(",") if len(sys.argv) > 3 else None
+            snapshot_download(repo, revision=revision, allow_patterns=patterns)
             """
-        var arguments = ["-c", script, repo]
-        var display = "snapshot_download \(repo)"
+        var arguments = ["-c", script, id]
+        var display = "snapshot_download \(id)"
         if let revision, !revision.isEmpty {
             arguments.append(revision)
             display += " @ \(revision)"
         }
+        if let variant {
+            arguments.append(variantPatterns(variant).joined(separator: ","))
+            display += " (\(variant) only)"
+        }
         return (python, arguments, display)
+    }
+
+    /// The allow_patterns that fetch one GGUF variant: its single or split
+    /// files under any model-name prefix the repo uses, the files of its
+    /// `<variant>/` folder, and the vision projectors. The repo's draft
+    /// (dspark/mtp) and imatrix files carry other names, so they stay out.
+    private static func variantPatterns(_ variant: String) -> [String] {
+        [
+            "*-\(variant).gguf",
+            "*-\(variant)-*-of-*.gguf",
+            "\(variant)/*.gguf",
+            "mmproj-*.gguf",
+        ]
     }
 
     /// Total size of the regular files under `url` (recursively), 0 when

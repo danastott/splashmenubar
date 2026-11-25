@@ -13,8 +13,9 @@ final class ModelManageModel: ObservableObject {
     @Published private(set) var repos: [CacheRepo] = []
     @Published private(set) var scanning = true
     @Published var selectedRepoID: String?
-    /// Repo to download, `owner/repo` (a `:VARIANT` suffix is allowed for
-    /// the user's reference; the whole repo downloads either way).
+    /// Repo to download, `owner/repo` — or `owner/repo:VARIANT` to fetch
+    /// just that GGUF variant (plus the vision projectors) instead of the
+    /// whole repo.
     @Published var downloadRepo = ""
     /// Branch, tag or commit to fetch; blank = the repo's default branch.
     @Published var downloadRevision = ""
